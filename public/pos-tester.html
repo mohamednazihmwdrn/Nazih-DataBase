@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StorePulse POS & Ingestion API Sandbox</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- HEADER -->
+  <header class="bg-slate-800/90 border-b border-slate-700/80 sticky top-0 z-40 backdrop-blur">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-cyan-600 flex items-center justify-center text-white font-bold shadow-md shadow-cyan-600/30">
+          <i class="fa-solid fa-cash-register text-sm"></i>
+        </div>
+        <div>
+          <span class="text-base font-bold tracking-tight text-white">StorePulse <span class="text-cyan-400">POS Simulator & API Tester</span></span>
+          <span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">POST /api/invoices</span>
+        </div>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-1">
+        <a href="/pos-tester.html" class="px-3 py-1.5 rounded-md text-sm font-medium bg-cyan-600 text-white">POS / API Tester</a>
+        <a href="/manager.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition">Manager Dashboard</a>
+        <a href="/admin.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition">SaaS Admin</a>
+        <a href="/deployment.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition">Deploy Guide</a>
+      </nav>
+
+      <div class="flex items-center space-x-2">
+        <span class="text-xs text-slate-400">Single Write Transaction:</span>
+        <span class="text-xs font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">ATOMIC ACID</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-6">
+
+    <!-- STORE & API KEY SELECTOR -->
+    <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-sm space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700 pb-3">
+        <div>
+          <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center">
+            <i class="fa-solid fa-key text-cyan-400 mr-2"></i>
+            1. Authenticate Store Terminal
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Select an enrolled store or enter a custom API key to test validation & subscription enforcement.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="loadSampleClient('active')" class="px-2.5 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 rounded text-xs hover:bg-emerald-600 hover:text-white transition">
+            Pick Active Store
+          </button>
+          <button onclick="loadSampleClient('expired')" class="px-2.5 py-1 bg-rose-600/20 text-rose-300 border border-rose-500/30 rounded text-xs hover:bg-rose-600 hover:text-white transition">
+            Pick Expired Store (Test 403)
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Select Provisioned Store</label>
+          <select id="storeSelectDropdown" onchange="onStoreSelectChange()" class="w-full bg-slate-900 border border-slate-700 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-cyan-500">
+            <option value="">-- Custom / Manual Entry --</option>
+          </select>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Header: <code class="text-cyan-300">x-api-key</code></label>
+          <input type="text" id="apiKeyInput" placeholder="sk_live_..." class="w-full bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-white px-3 py-2 focus:outline-none focus:border-cyan-500">
+        </div>
+      </div>
+    </div>
+
+    <!-- POS REGISTER & PAYLOAD BUILDER -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT: INTERACTIVE POS CATALOG (6 COLS) -->
+      <div class="lg:col-span-6 bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-sm space-y-4 flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+          <h3 class="font-bold text-white text-sm flex items-center">
+            <i class="fa-solid fa-bag-shopping text-emerald-400 mr-2"></i>
+            2. Quick POS Item Register
+          </h3>
+          <span class="text-xs text-slate-400 font-mono">Click to Add</span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <button onclick="addItemToCart('Single Origin Cold Brew', 'Beverages', 4.75)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">Cold Brew</div>
+            <div class="text-[10px] text-slate-400">Beverages</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$4.75</div>
+          </button>
+
+          <button onclick="addItemToCart('Artisan Butter Croissant', 'Bakery', 3.95)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">Croissant</div>
+            <div class="text-[10px] text-slate-400">Bakery</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$3.95</div>
+          </button>
+
+          <button onclick="addItemToCart('Iced Matcha Oat Latte', 'Beverages', 5.50)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">Matcha Latte</div>
+            <div class="text-[10px] text-slate-400">Beverages</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$5.50</div>
+          </button>
+
+          <button onclick="addItemToCart('Smoked Salmon Bagel', 'Food', 11.50)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">Salmon Bagel</div>
+            <div class="text-[10px] text-slate-400">Food</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$11.50</div>
+          </button>
+
+          <button onclick="addItemToCart('Quinoa Protein Salad', 'Food', 9.75)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">Quinoa Salad</div>
+            <div class="text-[10px] text-slate-400">Food</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$9.75</div>
+          </button>
+
+          <button onclick="addItemToCart('USB-C Fast Cable 2m', 'Electronics', 14.99)" class="p-3 bg-slate-900 border border-slate-700/80 hover:border-cyan-500 rounded-xl text-left transition group">
+            <div class="text-xs font-bold text-white group-hover:text-cyan-300">USB-C Cable</div>
+            <div class="text-[10px] text-slate-400">Electronics</div>
+            <div class="text-xs font-bold text-emerald-400 mt-1 font-mono">$14.99</div>
+          </button>
+        </div>
+
+        <!-- CURRENT TICKET ITEMS -->
+        <div class="border-t border-slate-700 pt-3 flex-1 flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Ticket Items</span>
+            <button onclick="clearCart()" class="text-[11px] text-slate-500 hover:text-rose-400">Clear All</button>
+          </div>
+
+          <div id="cartItemsList" class="space-y-1.5 flex-1 max-h-48 overflow-y-auto pr-1 text-xs">
+            <!-- Rendered by JS -->
+          </div>
+
+          <!-- TICKET TOTALS -->
+          <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-1 mt-3 text-xs">
+            <div class="flex justify-between text-slate-400">
+              <span>Subtotal:</span>
+              <span id="cartSubtotal" class="font-mono text-white">$0.00</span>
+            </div>
+            <div class="flex justify-between text-slate-400">
+              <span>Tax (8%):</span>
+              <span id="cartTax" class="font-mono text-white">$0.00</span>
+            </div>
+            <div class="flex justify-between text-slate-200 font-bold pt-1 border-t border-slate-800">
+              <span>Grand Total:</span>
+              <span id="cartGrandTotal" class="font-mono text-emerald-400 text-sm">$0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: JSON INGESTION DISPATCHER & RESPONSE (6 COLS) -->
+      <div class="lg:col-span-6 bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-sm space-y-4 flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+          <h3 class="font-bold text-white text-sm flex items-center">
+            <i class="fa-solid fa-code text-cyan-400 mr-2"></i>
+            3. Dynamic Ingestion Payload
+          </h3>
+          <button onclick="sendInvoicePayload()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow-sm shadow-emerald-600/30">
+            <i class="fa-solid fa-paper-plane text-xs"></i>
+            <span>POST Ingest</span>
+          </button>
+        </div>
+
+        <div class="space-y-2 flex-1 flex flex-col">
+          <label class="block text-xs text-slate-400">HTTP Body (Editable JSON):</label>
+          <textarea id="payloadJsonArea" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 h-52 resize-none select-all"></textarea>
+        </div>
+
+        <!-- SERVER RESPONSE INSPECTOR -->
+        <div class="border-t border-slate-700 pt-3 space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold uppercase tracking-wider text-slate-300">Server Response</span>
+            <span id="responseStatusBadge" class="font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-400">
+              Ready
+            </span>
+          </div>
+          <pre id="responseJsonArea" class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-300 max-h-36 overflow-y-auto select-all">{ "status": "Waiting for request..." }</pre>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    let clients = [];
+    let cart = [
+      { item_name: 'Single Origin Cold Brew', category: 'Beverages', quantity: 2, unit_price: 4.75, total_price: 9.50 },
+      { item_name: 'Artisan Butter Croissant', category: 'Bakery', quantity: 1, unit_price: 3.95, total_price: 3.95 }
+    ];
+
+    async function init() {
+      await loadClients();
+      updateCartDisplay();
+    }
+
+    async function loadClients() {
+      try {
+        const res = await fetch('/api/admin/clients');
+        const data = await res.json();
+        if (data.success) {
+          clients = data.clients || [];
+          const select = document.getElementById('storeSelectDropdown');
+          select.innerHTML = '<option value="">-- Choose Enrolled Store --</option>';
+          clients.forEach(c => {
+            select.innerHTML += `<option value="${c.api_key}">${c.name} [${c.status.toUpperCase()}]</option>`;
+          });
+
+          // Auto-select first active store
+          const firstActive = clients.find(c => c.status === 'active');
+          if (firstActive) {
+            select.value = firstActive.api_key;
+            document.getElementById('apiKeyInput').value = firstActive.api_key;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load clients', err);
+      }
+    }
+
+    function onStoreSelectChange() {
+      const key = document.getElementById('storeSelectDropdown').value;
+      document.getElementById('apiKeyInput').value = key;
+      syncJsonPayload();
+    }
+
+    function loadSampleClient(type) {
+      if (type === 'expired') {
+        const exp = clients.find(c => c.status === 'expired' || c.store_id.includes('EXPIRED')) || { api_key: 'sk_live_vintage_exp_00000000dead' };
+        document.getElementById('apiKeyInput').value = exp.api_key;
+        document.getElementById('storeSelectDropdown').value = exp.api_key || '';
+      } else {
+        const act = clients.find(c => c.status === 'active') || clients[0];
+        if (act) {
+          document.getElementById('apiKeyInput').value = act.api_key;
+          document.getElementById('storeSelectDropdown').value = act.api_key;
+        }
+      }
+      syncJsonPayload();
+    }
+
+    function addItemToCart(name, category, price) {
+      const existing = cart.find(i => i.item_name === name);
+      if (existing) {
+        existing.quantity += 1;
+        existing.total_price = Number((existing.quantity * existing.unit_price).toFixed(2));
+      } else {
+        cart.push({
+          item_name: name,
+          category: category,
+          quantity: 1,
+          unit_price: price,
+          total_price: price
+        });
+      }
+      updateCartDisplay();
+    }
+
+    function updateItemQty(index, delta) {
+      cart[index].quantity += delta;
+      if (cart[index].quantity <= 0) {
+        cart.splice(index, 1);
+      } else {
+        cart[index].total_price = Number((cart[index].quantity * cart[index].unit_price).toFixed(2));
+      }
+      updateCartDisplay();
+    }
+
+    function clearCart() {
+      cart = [];
+      updateCartDisplay();
+    }
+
+    function updateCartDisplay() {
+      const list = document.getElementById('cartItemsList');
+      if (cart.length === 0) {
+        list.innerHTML = '<div class="text-center py-6 text-slate-500">Ticket is empty. Click items above.</div>';
+        document.getElementById('cartSubtotal').innerText = '$0.00';
+        document.getElementById('cartTax').innerText = '$0.00';
+        document.getElementById('cartGrandTotal').innerText = '$0.00';
+        syncJsonPayload();
+        return;
+      }
+
+      let subtotal = 0;
+      list.innerHTML = cart.map((it, idx) => {
+        subtotal += it.total_price;
+        return `
+          <div class="flex items-center justify-between p-2 rounded bg-slate-900 border border-slate-800 font-mono">
+            <div class="truncate flex-1 mr-2">
+              <div class="font-bold text-white truncate font-sans text-xs">${it.item_name}</div>
+              <div class="text-[10px] text-slate-400">$${it.unit_price.toFixed(2)} each</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <div class="flex items-center space-x-1 bg-slate-800 rounded px-1">
+                <button onclick="updateItemQty(${idx}, -1)" class="px-1 text-slate-400 hover:text-white">-</button>
+                <span class="px-1 text-white font-bold">${it.quantity}</span>
+                <button onclick="updateItemQty(${idx}, 1)" class="px-1 text-slate-400 hover:text-white">+</button>
+              </div>
+              <span class="font-bold text-emerald-400 w-14 text-right">$${it.total_price.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const tax = Number((subtotal * 0.08).toFixed(2));
+      const grand = Number((subtotal + tax).toFixed(2));
+
+      document.getElementById('cartSubtotal').innerText = `$${subtotal.toFixed(2)}`;
+      document.getElementById('cartTax').innerText = `$${tax.toFixed(2)}`;
+      document.getElementById('cartGrandTotal').innerText = `$${grand.toFixed(2)}`;
+
+      syncJsonPayload();
+    }
+
+    function syncJsonPayload() {
+      const selectedClientKey = document.getElementById('apiKeyInput').value;
+      const client = clients.find(c => c.api_key === selectedClientKey) || { store_id: 'STORE-DOWNTOWN-01' };
+
+      let subtotal = cart.reduce((acc, c) => acc + c.total_price, 0);
+      let tax = Number((subtotal * 0.08).toFixed(2));
+
+      const payload = {
+        store_id: client.store_id || 'STORE-DOWNTOWN-01',
+        invoice_number: `INV-${(client.store_id || 'POS').substring(0, 5)}-${Math.floor(Math.random() * 9000 + 1000)}`,
+        customer_name: "Walk-in Guest",
+        customer_phone: "+1 (555) 234-5678",
+        payment_method: "card",
+        tax: tax,
+        discount: 0.00,
+        items: cart.map(c => ({
+          item_name: c.item_name,
+          category: c.category,
+          quantity: c.quantity,
+          unit_price: c.unit_price,
+          total_price: c.total_price
+        })),
+        notes: "Checkout terminal #01",
+        timestamp: new Date().toISOString()
+      };
+
+      document.getElementById('payloadJsonArea').value = JSON.stringify(payload, null, 2);
+    }
+
+    async function sendInvoicePayload() {
+      const apiKey = document.getElementById('apiKeyInput').value.trim();
+      const rawJson = document.getElementById('payloadJsonArea').value;
+      const badge = document.getElementById('responseStatusBadge');
+      const respBox = document.getElementById('responseJsonArea');
+
+      if (!apiKey) {
+        alert('Please provide an API Key in header "x-api-key"');
+        return;
+      }
+
+      badge.innerText = 'Sending...';
+      badge.className = 'font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300';
+
+      let parsedPayload;
+      try {
+        parsedPayload = JSON.parse(rawJson);
+      } catch (err) {
+        alert('Invalid JSON in payload textarea');
+        return;
+      }
+
+      try {
+        const startTime = performance.now();
+        const res = await fetch('/api/invoices', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey
+          },
+          body: JSON.stringify(parsedPayload)
+        });
+
+        const elapsed = Math.round(performance.now() - startTime);
+        const data = await res.json();
+
+        respBox.innerText = JSON.stringify(data, null, 2);
+
+        if (res.ok) {
+          badge.innerText = `${res.status} Created (${elapsed}ms)`;
+          badge.className = 'font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
+        } else {
+          badge.innerText = `${res.status} ${res.statusText} (${elapsed}ms)`;
+          badge.className = 'font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40';
+        }
+      } catch (err) {
+        respBox.innerText = `Network Error: ${err.message}`;
+        badge.innerText = 'Network Error';
+        badge.className = 'font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400';
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>

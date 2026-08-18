@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StorePulse SaaS - Deployment & Architecture Guide</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    pre { background: #0f172a; border: 1px solid #1e293b; border-radius: 0.5rem; padding: 1rem; color: #e2e8f0; font-family: monospace; font-size: 0.75rem; overflow-x: auto; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- HEADER -->
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold shadow-md shadow-indigo-600/30">
+          <i class="fa-solid fa-server text-sm"></i>
+        </div>
+        <div>
+          <span class="text-base font-bold tracking-tight text-white">StorePulse <span class="text-indigo-400">Deployment Guide</span></span>
+          <span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">Render • Fly.io • $5 VPS</span>
+        </div>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-1">
+        <a href="/deployment.html" class="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white">Deploy Guide</a>
+        <a href="/manager.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">Manager Dashboard</a>
+        <a href="/admin.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">SaaS Admin</a>
+        <a href="/pos-tester.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">POS Tester</a>
+      </nav>
+
+      <div class="flex items-center space-x-2">
+        <span class="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30">
+          <i class="fa-solid fa-shield-halved mr-1"></i> 100% Self-Hosted
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full space-y-10">
+
+    <!-- HERO INTRO -->
+    <div class="bg-gradient-to-r from-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-8 shadow-xl">
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+        Independent SaaS Backend & Single-Transaction Invoice Engine
+      </h1>
+      <p class="text-sm text-slate-300 mt-3 leading-relaxed max-w-3xl">
+        This production architecture is designed to completely replace Firebase. It provides single-transaction ACID writes in SQLite, instantaneous WebSocket streaming to manager dashboards, and cryptographic API key gating with paid subscription expiration checks.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+          <div class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Zero Firebase Bills</div>
+          <div class="text-sm text-slate-200 mt-1">Runs on $0 free tier or a $5/mo VPS with zero per-read/write surcharge.</div>
+        </div>
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+          <div class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Single Write TX</div>
+          <div class="text-sm text-slate-200 mt-1">Invoices, line items, and store telemetry are committed atomically in one query.</div>
+        </div>
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+          <div class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Built-In Realtime</div>
+          <div class="text-sm text-slate-200 mt-1">Native WebSockets on the same port (3000) with SSE fallback stream.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 1: RUNNING LOCALLY -->
+    <section class="space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-sm">1</div>
+        <h2 class="text-xl font-bold text-white">How to Run Locally</h2>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <p class="text-xs text-slate-300">
+          Clone the project, install dependencies, and start the unified server:
+        </p>
+
+        <pre><code># 1. Clone repository
+git clone https://github.com/your-username/storepulse-saas.git
+cd storepulse-saas
+
+# 2. Install dependencies
+npm install
+
+# 3. Start development server (boots SQLite, Express, WebSocket & Dashboards)
+npm run dev
+
+# Server will run on:
+# -> Web UI: http://localhost:3000
+# -> Manager: http://localhost:3000/manager.html
+# -> Admin: http://localhost:3000/admin.html</code></pre>
+      </div>
+    </section>
+
+    <!-- SECTION 2: FREE DEPLOYMENT ON RENDER.COM -->
+    <section class="space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-emerald-600 text-white font-bold flex items-center justify-center text-sm">2</div>
+        <h2 class="text-xl font-bold text-white">Deploy for FREE on Render.com</h2>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <ol class="list-decimal list-inside text-xs text-slate-300 space-y-3">
+          <li>Create a free account at <strong class="text-white">Render.com</strong>.</li>
+          <li>Click <strong class="text-white">New +</strong> &rarr; <strong class="text-white">Web Service</strong> &rarr; Connect your Git repository.</li>
+          <li>Configure build settings:
+            <div class="mt-2 bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] space-y-1">
+              <div><span class="text-slate-500">Runtime:</span> <span class="text-emerald-400">Node</span></div>
+              <div><span class="text-slate-500">Build Command:</span> <span class="text-indigo-300">npm run build</span></div>
+              <div><span class="text-slate-500">Start Command:</span> <span class="text-indigo-300">npm start</span></div>
+              <div><span class="text-slate-500">Plan:</span> <span class="text-cyan-300">Free</span></div>
+            </div>
+          </li>
+          <li><strong class="text-white">Persistent Disk (Optional but recommended):</strong> In service settings, attach a Disk mounted at <code class="text-indigo-300">/data</code> so the SQLite database file persists across service deploys!</li>
+          <li>Click <strong class="text-white">Deploy Web Service</strong>. Render provisions SSL and WebSocket routing automatically.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- SECTION 3: $5/MONTH VPS SETUP (UBUNTU + PM2 + CADDY/NGINX) -->
+    <section class="space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-cyan-600 text-white font-bold flex items-center justify-center text-sm">3</div>
+        <h2 class="text-xl font-bold text-white">Production Deployment on a $5/mo VPS (Hetzner / DigitalOcean / Linode)</h2>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 text-xs text-slate-300">
+        <p>A $5/month cloud VPS (1 vCPU, 1GB RAM) with Ubuntu 22.04 or 24.04 can process millions of invoice payloads seamlessly using this SQLite architecture.</p>
+
+        <h4 class="font-bold text-white uppercase tracking-wider text-[11px] pt-2">Step A: Setup Node.js & PM2 Process Manager</h4>
+        <pre><code># SSH into your VPS
+ssh root@your-server-ip
+
+# Install Node.js 20.x
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git sqlite3
+
+# Install PM2 globally
+sudo npm install -g pm2</code></pre>
+
+        <h4 class="font-bold text-white uppercase tracking-wider text-[11px] pt-2">Step B: Deploy & Start StorePulse SaaS</h4>
+        <pre><code># Clone your app
+cd /var/www
+git clone https://github.com/your-username/storepulse-saas.git storepulse
+cd storepulse
+
+# Install dependencies and build bundle
+npm install
+npm run build
+
+# Start with PM2
+pm2 start dist/server.cjs --name "storepulse-saas"
+pm2 startup
+pm2 save</code></pre>
+
+        <h4 class="font-bold text-white uppercase tracking-wider text-[11px] pt-2">Step C: Free Automated HTTPS with Caddy (Recommended) or Nginx</h4>
+        <pre><code># Install Caddy web server (automatic Let's Encrypt SSL)
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+
+# Edit /etc/caddy/Caddyfile
+sudo nano /etc/caddy/Caddyfile
+
+# Paste this configuration:
+yourdomain.com {
+    reverse_proxy localhost:3000
+}
+
+# Reload Caddy
+sudo systemctl reload caddy</code></pre>
+
+        <h4 class="font-bold text-white uppercase tracking-wider text-[11px] pt-2">Step D: Daily SQLite Automated Zero-Downtime Backup</h4>
+        <pre><code># Add a daily cron job to backup the SQLite file safely:
+crontab -e
+
+# Add this line to backup every night at 3:00 AM:
+0 3 * * * sqlite3 /var/www/storepulse/data/storepulse.db ".backup '/var/backups/storepulse_$(date +\%F).db'"</code></pre>
+      </div>
+    </section>
+
+    <!-- SECTION 4: FLY.IO / DOCKER OPTION -->
+    <section class="space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-purple-600 text-white font-bold flex items-center justify-center text-sm">4</div>
+        <h2 class="text-xl font-bold text-white">Docker & Fly.io Deployment</h2>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-3 text-xs text-slate-300">
+        <p>You can run anywhere using standard Docker containers:</p>
+        <pre><code># Build Docker image
+docker build -t storepulse-saas .
+
+# Run container with persistent volume for SQLite
+docker run -d -p 3000:3000 -v storepulse_data:/app/data --name storepulse storepulse-saas</code></pre>
+      </div>
+    </section>
+
+  </main>
+
+</body>
+</html>

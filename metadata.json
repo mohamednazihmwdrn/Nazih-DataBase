@@ -1,0 +1,6 @@
+{
+  "name": "Nazih Core - MNDB Engine",
+  "description": "Mohamed Nazih's proprietary high-performance real-time database and POS sync engine (MNDB / NazihSync). Pure SQLite ACID storage, zero cloud fees, and ultra-fast client SDK integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

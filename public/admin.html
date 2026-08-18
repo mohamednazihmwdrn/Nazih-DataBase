@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StorePulse SaaS Admin - Subscription & API Key Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- TOP HEADER -->
+  <header class="bg-slate-800/90 border-b border-slate-700/80 sticky top-0 z-40 backdrop-blur">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold shadow-md shadow-indigo-600/30">
+          <i class="fa-solid fa-key text-sm"></i>
+        </div>
+        <div>
+          <span class="text-base font-bold tracking-tight text-white">StorePulse <span class="text-indigo-400">SaaS Admin</span></span>
+          <span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">v1.0 Self-Hosted</span>
+        </div>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-1">
+        <a href="/admin.html" class="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white">Clients & Keys</a>
+        <a href="/manager.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/60 transition">Manager Dashboard</a>
+        <a href="/pos-tester.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/60 transition">POS / API Sandbox</a>
+        <a href="/deployment.html" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/60 transition">Deploy Guide</a>
+      </nav>
+
+      <div class="flex items-center space-x-3">
+        <div id="serverStatusBadge" class="flex items-center text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span>
+          <span>SQLite Engine Online</span>
+        </div>
+        <button onclick="fetchClients(); fetchStats();" class="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition" title="Refresh Data">
+          <i class="fa-solid fa-arrows-rotate text-xs"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
+
+    <!-- KPI STATS OVERVIEW -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider">
+          <span>Active Client Stores</span>
+          <i class="fa-solid fa-store text-indigo-400 text-sm"></i>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="activeStoresCount" class="text-2xl font-bold text-white">--</span>
+          <span id="totalStoresBadge" class="text-xs text-slate-400 font-mono">-- total</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider">
+          <span>Total Invoices Ingested</span>
+          <i class="fa-solid fa-receipt text-emerald-400 text-sm"></i>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="totalInvoicesCount" class="text-2xl font-bold text-white">--</span>
+          <span class="text-xs text-emerald-400 font-medium">100% committed</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider">
+          <span>Aggregated Revenue</span>
+          <i class="fa-solid fa-dollar-sign text-amber-400 text-sm"></i>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="totalRevenueSum" class="text-2xl font-bold text-white">$0.00</span>
+          <span class="text-xs text-slate-400 font-mono">All Stores</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider">
+          <span>SQLite DB Storage</span>
+          <i class="fa-solid fa-database text-cyan-400 text-sm"></i>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="dbStorageSize" class="text-2xl font-bold text-white">--</span>
+          <button onclick="vacuumDatabase()" class="text-xs px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition">
+            Vacuum
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLIENTS & SUBSCRIPTIONS SECTION -->
+    <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl overflow-hidden shadow-sm">
+      <div class="p-5 sm:px-6 border-b border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">SaaS Client Stores & API Keys</h2>
+          <p class="text-xs text-slate-400 mt-0.5">Manage store credentials, subscriptions, expiry dates, and ingestion quotas.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <div class="relative">
+            <input type="text" id="clientSearch" oninput="renderClientsTable()" placeholder="Search stores, emails..." class="bg-slate-900 border border-slate-700 text-xs text-white rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:border-indigo-500 w-48 sm:w-64">
+            <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-500 text-xs"></i>
+          </div>
+          <button onclick="openNewClientModal()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center space-x-2 transition shadow-sm shadow-indigo-600/30">
+            <i class="fa-solid fa-plus text-xs"></i>
+            <span>Create Client</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- CLIENTS TABLE -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-900/60 text-xs uppercase font-medium text-slate-400 border-b border-slate-700/80">
+            <tr>
+              <th class="px-6 py-3.5">Store / Client</th>
+              <th class="px-6 py-3.5">API Key (x-api-key)</th>
+              <th class="px-6 py-3.5">Plan</th>
+              <th class="px-6 py-3.5">Status</th>
+              <th class="px-6 py-3.5">Subscription Expiry</th>
+              <th class="px-6 py-3.5 text-right">Invoices / Rev</th>
+              <th class="px-6 py-3.5 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="clientsTableBody" class="divide-y divide-slate-700/60">
+            <tr>
+              <td colspan="7" class="px-6 py-8 text-center text-slate-500">Loading clients from SQLite database...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LOWER GRID: DATABASE STORAGE & AUDIT LOGS -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- SMART AUTO-ARCHIVE & DB MAINTENANCE -->
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-6 shadow-sm space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-700/80 pb-3">
+          <h3 class="font-semibold text-white text-base flex items-center">
+            <i class="fa-solid fa-box-archive text-indigo-400 mr-2 text-sm"></i>
+            Smart Auto-Archive & DB
+          </h3>
+          <span class="text-xs text-slate-400 font-mono">SQLite WAL</span>
+        </div>
+
+        <div class="space-y-3 text-xs text-slate-300">
+          <div class="flex justify-between py-1.5 border-b border-slate-700/50">
+            <span class="text-slate-400">Active Invoices (Hot Table):</span>
+            <span id="activeInvCount" class="font-mono text-white font-bold">--</span>
+          </div>
+          <div class="flex justify-between py-1.5 border-b border-slate-700/50">
+            <span class="text-slate-400">Archived Invoices (Cold Table):</span>
+            <span id="archivedInvCount" class="font-mono text-slate-300 font-bold">--</span>
+          </div>
+          <div class="flex justify-between py-1.5 border-b border-slate-700/50">
+            <span class="text-slate-400">Total Items Indexed:</span>
+            <span id="totalItemsCount" class="font-mono text-white font-bold">--</span>
+          </div>
+          <div class="flex justify-between py-1.5 border-b border-slate-700/50">
+            <span class="text-slate-400">Storage Engine:</span>
+            <span class="text-slate-300">Zero-Config File DB</span>
+          </div>
+        </div>
+
+        <div class="bg-slate-900/80 rounded-lg p-3.5 border border-slate-700 space-y-3">
+          <label class="block text-xs font-medium text-slate-300">Archive Invoices Older Than:</label>
+          <div class="flex space-x-2">
+            <select id="archiveDaysSelect" class="bg-slate-800 border border-slate-700 rounded-lg text-xs text-white px-3 py-2 flex-1 focus:outline-none focus:border-indigo-500">
+              <option value="30">30 Days (Standard)</option>
+              <option value="60">60 Days</option>
+              <option value="90">90 Days</option>
+              <option value="1">1 Day (Test Clean)</option>
+            </select>
+            <button onclick="triggerAutoArchive()" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition flex items-center space-x-1.5">
+              <i class="fa-solid fa-compress text-xs"></i>
+              <span>Archive</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 leading-tight">Moves records in a single atomic transaction without service disruption.</p>
+        </div>
+
+        <button onclick="vacuumDatabase()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition flex items-center justify-center space-x-2">
+          <i class="fa-solid fa-broom text-xs text-cyan-400"></i>
+          <span>Run SQLite VACUUM & Defrag</span>
+        </button>
+      </div>
+
+      <!-- REAL-TIME API AUDIT & ACCESS LOGS -->
+      <div class="lg:col-span-2 bg-slate-800/80 border border-slate-700/80 rounded-xl p-6 shadow-sm flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-700/80 pb-3 mb-4">
+          <div>
+            <h3 class="font-semibold text-white text-base flex items-center">
+              <i class="fa-solid fa-shield-halved text-emerald-400 mr-2 text-sm"></i>
+              API Key Authentication & Ingestion Audit Log
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">Live log of verified writes, latency in milliseconds, and rejection reasons.</p>
+          </div>
+          <button onclick="fetchLogs()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Refresh Logs</button>
+        </div>
+
+        <div class="flex-1 overflow-x-auto">
+          <table class="w-full text-left text-xs text-slate-300 font-mono">
+            <thead class="text-slate-500 border-b border-slate-700/50 pb-2">
+              <tr>
+                <th class="py-2">Time</th>
+                <th class="py-2">Store ID</th>
+                <th class="py-2">Method / Route</th>
+                <th class="py-2">Status</th>
+                <th class="py-2 text-right">Latency</th>
+              </tr>
+            </thead>
+            <tbody id="logsTableBody" class="divide-y divide-slate-700/30">
+              <tr>
+                <td colspan="5" class="py-6 text-center text-slate-500">Fetching API audit log...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- CREATE CLIENT MODAL -->
+  <div id="createClientModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 fade-in">
+      <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center">
+          <i class="fa-solid fa-store text-indigo-400 mr-2"></i>
+          Provision New Client Store
+        </h3>
+        <button onclick="closeNewClientModal()" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form id="createClientForm" onsubmit="handleCreateClient(event)" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Store ID (Unique identifier for hardware/POS)</label>
+          <input type="text" id="newStoreId" required placeholder="e.g. STORE-UPTOWN-08" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white uppercase focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Store / Business Name</label>
+          <input type="text" id="newStoreName" required placeholder="e.g. Uptown Organic Roastery" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Owner Contact Email</label>
+          <input type="email" id="newOwnerEmail" required placeholder="owner@store.com" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-medium mb-1">Subscription Plan</label>
+            <select id="newPlan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+              <option value="pro">Pro ($49/mo)</option>
+              <option value="starter">Starter ($19/mo)</option>
+              <option value="enterprise">Enterprise ($149/mo)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 font-medium mb-1">Initial Days Valid</label>
+            <select id="newDaysValid" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+              <option value="30">30 Days (1 Month)</option>
+              <option value="90">90 Days (Quarterly)</option>
+              <option value="365">365 Days (1 Year)</option>
+              <option value="7">7 Days (Trial)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Rate Limit (Requests / minute)</label>
+          <input type="number" id="newRateLimit" value="200" min="10" max="2000" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="pt-3 border-t border-slate-700 flex items-center justify-end space-x-3">
+          <button type="button" onclick="closeNewClientModal()" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium transition">
+            Cancel
+          </button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition flex items-center space-x-1.5 shadow-sm">
+            <i class="fa-solid fa-key"></i>
+            <span>Generate Key & Create</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden bg-slate-800 border border-indigo-500 text-white px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 text-xs fade-in">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-indigo-400 text-base"></i>
+    <span id="toastMessage">Action completed</span>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script>
+    let clientsData = [];
+
+    async function init() {
+      await fetchClients();
+      await fetchStats();
+      await fetchLogs();
+      setInterval(fetchLogs, 10000);
+      setInterval(fetchStats, 15000);
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMessage');
+      const toastIcon = document.getElementById('toastIcon');
+
+      toastMsg.innerText = msg;
+      toast.className = `fixed bottom-5 right-5 z-50 bg-slate-800 border ${isError ? 'border-rose-500 text-rose-200' : 'border-indigo-500 text-slate-100'} px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 text-xs fade-in`;
+      toastIcon.className = `fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-indigo-400'} text-base`;
+      toast.classList.remove('hidden');
+
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3500);
+    }
+
+    async function fetchClients() {
+      try {
+        const res = await fetch('/api/admin/clients');
+        const data = await res.json();
+        if (data.success) {
+          clientsData = data.clients || [];
+          renderClientsTable();
+        }
+      } catch (err) {
+        console.error('Error fetching clients:', err);
+      }
+    }
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/admin/system-stats');
+        const data = await res.json();
+        if (data.success) {
+          const db = data.database;
+          document.getElementById('activeStoresCount').innerText = db.active_clients_count;
+          document.getElementById('totalStoresBadge').innerText = `${db.clients_count} total`;
+          document.getElementById('totalInvoicesCount').innerText = (db.active_invoices_count + db.archived_invoices_count).toLocaleString();
+          document.getElementById('totalRevenueSum').innerText = `$${db.total_revenue.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+          document.getElementById('dbStorageSize').innerText = db.file_size_formatted;
+          
+          document.getElementById('activeInvCount').innerText = db.active_invoices_count.toLocaleString();
+          document.getElementById('archivedInvCount').innerText = db.archived_invoices_count.toLocaleString();
+          document.getElementById('totalItemsCount').innerText = db.total_items_count.toLocaleString();
+        }
+      } catch (err) {
+        console.error('Error fetching stats:', err);
+      }
+    }
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/admin/logs?limit=8');
+        const data = await res.json();
+        if (data.success) {
+          const tbody = document.getElementById('logsTableBody');
+          if (!data.logs || data.logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">No recent logs recorded.</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = data.logs.map(log => {
+            const isOk = log.status_code >= 200 && log.status_code < 300;
+            const timeFormatted = new Date(log.created_at).toLocaleTimeString();
+            return `
+              <tr class="hover:bg-slate-700/20">
+                <td class="py-2 text-slate-400">${timeFormatted}</td>
+                <td class="py-2 font-medium text-slate-200">${log.store_id}</td>
+                <td class="py-2 text-slate-300">${log.method} ${log.endpoint}</td>
+                <td class="py-2">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold ${isOk ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
+                    ${log.status_code}
+                  </span>
+                </td>
+                <td class="py-2 text-right text-slate-400">${log.latency_ms}ms</td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Error fetching logs:', err);
+      }
+    }
+
+    function renderClientsTable() {
+      const search = document.getElementById('clientSearch').value.toLowerCase();
+      const filtered = clientsData.filter(c => 
+        c.name.toLowerCase().includes(search) || 
+        c.store_id.toLowerCase().includes(search) || 
+        c.owner_email.toLowerCase().includes(search)
+      );
+
+      const tbody = document.getElementById('clientsTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">No matching clients found.</td></tr>';
+        return;
+      }
+
+      const now = new Date();
+
+      tbody.innerHTML = filtered.map(c => {
+        const expiry = new Date(c.subscription_expires_at);
+        const daysRemaining = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const isExpired = daysRemaining <= 0 || c.status === 'expired';
+        const isWarning = daysRemaining <= 7 && !isExpired;
+
+        let statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Active</span>`;
+        if (c.status === 'suspended') {
+          statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">Suspended</span>`;
+        } else if (c.status === 'trial') {
+          statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">Trial</span>`;
+        } else if (isExpired) {
+          statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/40">Expired</span>`;
+        }
+
+        const planBadges = {
+          starter: 'bg-slate-700 text-slate-300',
+          pro: 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30',
+          enterprise: 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
+        };
+
+        return `
+          <tr class="hover:bg-slate-750/50 transition">
+            <td class="px-6 py-4">
+              <div class="font-bold text-white">${c.name}</div>
+              <div class="text-xs text-slate-400 font-mono flex items-center space-x-1 mt-0.5">
+                <span>${c.store_id}</span>
+                <span class="text-slate-600">•</span>
+                <span>${c.owner_email}</span>
+              </div>
+            </td>
+            <td class="px-6 py-4 font-mono text-xs">
+              <div class="flex items-center space-x-2 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-700/80 max-w-xs">
+                <span id="key_${c.id}" class="truncate text-slate-300 select-all">${c.api_key}</span>
+                <button onclick="copyToClipboard('${c.api_key}')" class="text-slate-400 hover:text-white" title="Copy Key">
+                  <i class="fa-regular fa-copy"></i>
+                </button>
+              </div>
+            </td>
+            <td class="px-6 py-4">
+              <span class="px-2.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${planBadges[c.plan] || 'bg-slate-700'}">
+                ${c.plan}
+              </span>
+            </td>
+            <td class="px-6 py-4">
+              ${statusBadge}
+            </td>
+            <td class="px-6 py-4 text-xs font-mono">
+              <div class="${isExpired ? 'text-rose-400 font-bold' : isWarning ? 'text-amber-400 font-bold' : 'text-slate-300'}">
+                ${c.subscription_expires_at.split('T')[0]}
+              </div>
+              <div class="text-[11px] ${isExpired ? 'text-rose-400' : isWarning ? 'text-amber-400' : 'text-slate-500'}">
+                ${isExpired ? `Expired ${Math.abs(daysRemaining)}d ago` : `${daysRemaining} days remaining`}
+              </div>
+            </td>
+            <td class="px-6 py-4 text-right font-mono text-xs">
+              <div class="text-white font-bold">${c.total_invoices_ingested.toLocaleString()} inv</div>
+              <div class="text-emerald-400">$${c.total_revenue_ingested.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+            </td>
+            <td class="px-6 py-4 text-center">
+              <div class="flex items-center justify-center space-x-1.5">
+                <button onclick="extendSubscription('${c.id}', 30)" class="p-1.5 rounded bg-slate-700 hover:bg-indigo-600 text-slate-300 hover:text-white transition text-xs" title="Extend 30 Days">
+                  +30d
+                </button>
+                <button onclick="toggleClientStatus('${c.id}', '${c.status === 'active' ? 'suspended' : 'active'}')" class="p-1.5 rounded ${c.status === 'active' ? 'bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white' : 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600 hover:text-white'} transition text-xs" title="${c.status === 'active' ? 'Suspend Store' : 'Activate Store'}">
+                  <i class="fa-solid ${c.status === 'active' ? 'fa-pause' : 'fa-play'}"></i>
+                </button>
+                <button onclick="regenerateApiKey('${c.id}')" class="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white transition text-xs" title="Re-issue API Key">
+                  <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+                <button onclick="deleteClient('${c.id}')" class="p-1.5 rounded bg-slate-700 hover:bg-rose-600 text-slate-300 hover:text-white transition text-xs" title="Delete Client">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+      showToast('API Key copied to clipboard!');
+    }
+
+    function openNewClientModal() {
+      document.getElementById('createClientModal').classList.remove('hidden');
+    }
+
+    function closeNewClientModal() {
+      document.getElementById('createClientModal').classList.add('hidden');
+    }
+
+    async function handleCreateClient(e) {
+      e.preventDefault();
+      const payload = {
+        store_id: document.getElementById('newStoreId').value.trim(),
+        name: document.getElementById('newStoreName').value.trim(),
+        owner_email: document.getElementById('newOwnerEmail').value.trim(),
+        plan: document.getElementById('newPlan').value,
+        days_valid: parseInt(document.getElementById('newDaysValid').value),
+        rate_limit: parseInt(document.getElementById('newRateLimit').value)
+      };
+
+      try {
+        const res = await fetch('/api/admin/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Store ${data.client.name} created with new API Key!`);
+          closeNewClientModal();
+          document.getElementById('createClientForm').reset();
+          await fetchClients();
+          await fetchStats();
+        } else {
+          showToast(data.error || 'Failed to create client', true);
+        }
+      } catch (err) {
+        showToast('Error creating client', true);
+      }
+    }
+
+    async function extendSubscription(id, days) {
+      try {
+        const res = await fetch(`/api/admin/clients/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ add_days: days, status: 'active' })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Extended subscription by +${days} days!`);
+          await fetchClients();
+        }
+      } catch (err) {
+        showToast('Failed to extend subscription', true);
+      }
+    }
+
+    async function toggleClientStatus(id, newStatus) {
+      try {
+        const res = await fetch(`/api/admin/clients/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Store status updated to ${newStatus}!`);
+          await fetchClients();
+          await fetchStats();
+        }
+      } catch (err) {
+        showToast('Failed to update status', true);
+      }
+    }
+
+    async function regenerateApiKey(id) {
+      if (!confirm('Are you sure you want to regenerate this API key? Existing POS systems will need the new key immediately.')) return;
+      try {
+        const res = await fetch(`/api/admin/clients/${id}/regenerate-key`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('New API Key issued successfully!');
+          await fetchClients();
+        }
+      } catch (err) {
+        showToast('Failed to regenerate key', true);
+      }
+    }
+
+    async function deleteClient(id) {
+      if (!confirm('Are you sure you want to remove this client?')) return;
+      try {
+        const res = await fetch(`/api/admin/clients/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Client removed.');
+          await fetchClients();
+          await fetchStats();
+        }
+      } catch (err) {
+        showToast('Failed to delete client', true);
+      }
+    }
+
+    async function triggerAutoArchive() {
+      const days = document.getElementById('archiveDaysSelect').value;
+      try {
+        const res = await fetch('/api/admin/archive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ days_threshold: parseInt(days) })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message);
+          await fetchStats();
+        }
+      } catch (err) {
+        showToast('Failed to archive', true);
+      }
+    }
+
+    async function vacuumDatabase() {
+      try {
+        const res = await fetch('/api/admin/vacuum', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message);
+          await fetchStats();
+        }
+      } catch (err) {
+        showToast('Vacuum failed', true);
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
