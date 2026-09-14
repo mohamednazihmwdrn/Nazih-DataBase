@@ -42,11 +42,23 @@ async function startServer() {
   // 5. Mount API Routes
   app.use('/api', apiRouter);
 
-  // Catch-all 404 for API routes so they always return JSON
+  // Catch-all 404 for unmatched API routes
   app.use('/api', (req, res) => {
     res.status(404).json({
       success: false,
       error: `API endpoint not found: ${req.method} ${req.originalUrl}`,
+    });
+  });
+
+  // Global JSON error handler for API errors
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[API Error Handler]:', err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Internal Server Error',
     });
   });
 

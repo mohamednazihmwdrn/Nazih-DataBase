@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, Receipt, CheckCircle, Clock } from 'lucide-react';
+import { X, Receipt, CheckCircle, Clock, Printer, FileDown } from 'lucide-react';
 import { InvoiceRecord } from '../types';
+import { exportSingleInvoiceToPdf } from '../lib/pdfExporter';
 
 interface InvoiceDetailModalProps {
   invoice: InvoiceRecord | null;
@@ -18,6 +19,10 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
   } catch (e) {
     rawJson = JSON.stringify(invoice, null, 2);
   }
+
+  const handleExportPdf = () => {
+    exportSingleInvoiceToPdf(invoice);
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -42,13 +47,25 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
             </div>
           </div>
 
-          <button
-            id="close-invoice-modal-btn"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              id="export-pdf-modal-top-btn"
+              onClick={handleExportPdf}
+              className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="طباعة أو تصدير الفاتورة بصيغة PDF"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>تصدير PDF / طباعة</span>
+            </button>
+
+            <button
+              id="close-invoice-modal-btn"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* METRICS SUMMARY ROW */}
@@ -141,12 +158,22 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
             <Clock className="w-3.5 h-3.5 text-slate-400" />
             <span>معاملة مطابقة لمعايير ACID ومحفوظة بنجاح</span>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
-          >
-            إغلاق المعاينة
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              id="export-pdf-modal-bottom-btn"
+              onClick={handleExportPdf}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>طباعة / تصدير PDF</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+            >
+              إغلاق المعاينة
+            </button>
+          </div>
         </div>
 
       </div>

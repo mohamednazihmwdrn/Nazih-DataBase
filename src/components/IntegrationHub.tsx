@@ -13,6 +13,8 @@ import {
   Radio,
   FileCode,
   ShieldCheck,
+  Gamepad2,
+  Database,
 } from 'lucide-react';
 import { ClientRecord } from '../types';
 
@@ -22,7 +24,7 @@ interface IntegrationHubProps {
 
 export const IntegrationHub: React.FC<IntegrationHubProps> = ({ clients }) => {
   const [selectedLanguage, setSelectedLanguage] = useState<
-    'flutter' | 'javascript' | 'python' | 'csharp' | 'php' | 'curl' | 'websocket'
+    'flutter' | 'offline_sync_flutter' | 'javascript' | 'python' | 'csharp' | 'offline_sync_csharp' | 'unity_game' | 'godot_game' | 'redis_cache' | 'php' | 'curl' | 'websocket'
   >('flutter');
   const [selectedStoreId, setSelectedStoreId] = useState<string>(
     clients.length > 0 ? clients[0].store_id : 'STORE_CLIENT_01'
@@ -47,79 +49,156 @@ export const IntegrationHub: React.FC<IntegrationHubProps> = ({ clients }) => {
   // Production-Ready SDK Snippets for Nazih Core / MNDB
   const codeSnippets: Record<string, { title: string; filename: string; code: string; desc: string }> = {
     flutter: {
-      title: 'Flutter / Dart (تطبيقات الموبايل Android & iOS)',
-      filename: 'nazih_core_service.dart',
-      desc: 'كود كامل جاهز للنسخ في مشروع فلاتر لإرسال فواتير نقاط البيع مباشرة لمحرك Nazih Core.',
-      code: `import 'dart:convert';
-import 'package:http/http.dart' as http;
+      title: 'Flutter / Dart Realtime Sync (SQLite + WebSocket)',
+      filename: 'sync_service.dart',
+      desc: 'كود عميل Flutter كامل مع تهيئة SQLite والاستماع المباشر للتحديثات عبر WebSockets.',
+      code: `// 1. أضف المكتبات في pubspec.yaml:
+// dependencies:
+//   flutter:
+//     sdk: flutter
+//   sqflite: ^2.3.0
+//   path: ^1.8.3
+//   web_socket_channel: ^2.4.0
 
-/// محرك مزامنة البيانات - Nazih Core (MNDB Engine)
-class NazihCoreService {
-  static const String serverUrl = '$serverOrigin/api/invoices';
-  static const String apiKey = '$apiKey';
-  static const String storeId = '$storeId';
+import 'dart:async';
+import 'dart:convert';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
-  /// إرسال فاتورة جديدة إلى السيرفر في معاملة ذرية واحدة (ACID Transaction)
-  static Future<bool> sendInvoice({
-    required String invoiceNumber,
-    String? customerName,
-    String paymentMethod = 'card',
-    required List<Map<String, dynamic>> items,
-    double tax = 0.0,
-    double discount = 0.0,
-    String? notes,
-  }) async {
+class SyncService {
+  // إعدادات العميل والهوية
+  final String serverUrl = '${wsOrigin}'; // أو ws://10.0.2.2:3000 لـ Android Emulator
+  final String storeId = '${storeId}';
+  final String deviceId = 'device_flutter_01';
+
+  Database? _localDb;
+  WebSocketChannel? _channel;
+  bool _isConnected = false;
+
+  // 1. تهيئة قاعدة البيانات المحلية SQLite
+  Future<void> initLocalDatabase() async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, 'local_store.db');
+
+    _localDb = await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE invoices (
+            id TEXT PRIMARY KEY,
+            total_amount REAL,
+            client_name TEXT,
+            updated_at INTEGER
+          )
+        ''');
+      },
+    );
+    print('💾 تم تجهيز قاعدة البيانات المحلية SQLite بنجاح.');
+  }
+
+  // 2. الاتصال بـ WebSocket والمصادقة
+  void connectWebSocket() {
     try {
-      final response = await http.post(
-        Uri.parse(serverUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: jsonEncode({
-          'store_id': storeId,
-          'invoice_number': invoiceNumber,
-          'customer_name': customerName ?? 'عميل نقدي',
-          'payment_method': paymentMethod,
-          'tax': tax,
-          'discount': discount,
-          'items': items,
-          'notes': notes ?? 'فاتورة نقطة بيع POS',
-          'timestamp': DateTime.now().toIso8601String(),
-        }),
-      );
+      _channel = WebSocketChannel.connect(Uri.parse(serverUrl));
+      _isConnected = true;
+      print('✅ تم الاتصال بالسيرفر، جاري إرسال مصادقة المتجر...');
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        print('✅ [Nazih Core] تم استلام وحفظ الفاتورة بنجاح: \${response.body}');
-        return true;
-      } else {
-        print('❌ [Nazih Core] خطأ في الإرسال: \${response.statusCode} - \${response.body}');
-        return false;
-      }
+      // إرسال كود المصادقة للاشتراك في بث المتجر
+      final authMessage = jsonEncode({
+        'type': 'AUTH',
+        'store_id': storeId,
+        'device_id': deviceId,
+      });
+      _channel!.sink.add(authMessage);
+
+      // الاستماع للرسائل القادمة من السيرفر
+      _channel!.stream.listen(
+        (data) {
+          _handleIncomingMessage(data);
+        },
+        onDone: () {
+          print('⚠️ انقطع الاتصال بالسيرفر! إعادة المحاولة بعد 3 ثوانٍ...');
+          _isConnected = false;
+          _reconnect();
+        },
+        onError: (error) {
+          print('❌ خطأ اتصال: $error');
+          _isConnected = false;
+          _reconnect();
+        },
+      );
     } catch (e) {
-      print('⚠️ [Nazih Core] تعذر الاتصال بالسيرفر: \$e');
-      return false;
+      print('❌ فشل الاتصال: $e');
+      _reconnect();
     }
   }
-}
 
-// مثال للاستخدام داخل التطبيق:
-void main() async {
-  final success = await NazihCoreService.sendInvoice(
-    invoiceNumber: 'INV-2026-001',
-    customerName: 'عميل حقيقي',
-    paymentMethod: 'card',
-    items: [
-      {
-        'item_name': 'منتج رقم 1',
-        'category': 'مبيعات',
-        'quantity': 1,
-        'unit_price': 15.00,
-        'total_price': 15.00,
+  // إعادة الاتصال التلقائي
+  void _reconnect() {
+    Timer(const Duration(seconds: 3), () {
+      if (!_isConnected) connectWebSocket();
+    });
+  }
+
+  // 3. معالجة الرسائل القادمة من السيرفر
+  void _handleIncomingMessage(dynamic rawData) {
+    try {
+      final message = jsonDecode(rawData as String);
+
+      if (message['type'] == 'AUTH_OK') {
+        print('🔒 تم تأكيد المصادقة: التطبيق جاهز لاستقبال التحديثات اللحظية.');
+      } else if (message['type'] == 'REALTIME_UPDATE') {
+        print('⚡ استلام تحديث حي من جهاز آخر (\${message['sender_device_id']})');
+        final List<dynamic> mutations = message['payload'];
+        _applyMutationsToLocalDB(mutations);
       }
-    ],
-    tax: 1.20,
-  );
+    } catch (e) {
+      print('❌ خطأ أثناء معالجة الرسالة: $e');
+    }
+  }
+
+  // 4. تطبيق التحديثات على SQLite المحلية
+  Future<void> _applyMutationsToLocalDB(List<dynamic> mutations) async {
+    if (_localDb == null) return;
+
+    final batch = _localDb!.batch();
+
+    for (var mutation in mutations) {
+      final String table = mutation['table'];
+      final String action = mutation['action'];
+      final Map<String, dynamic> data = mutation['data'];
+      final int clientTimestamp = mutation['client_timestamp'];
+
+      if (table == 'invoices' && (action == 'INSERT' || action == 'UPDATE')) {
+        // حفظ أو تحديث فقط إذا كانت البيانات القادمة أحدث من المخزنة محلياً
+        batch.rawInsert('''
+          INSERT INTO invoices (id, total_amount, client_name, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            total_amount = excluded.total_amount,
+            client_name = excluded.client_name,
+            updated_at = excluded.updated_at
+          WHERE excluded.updated_at > invoices.updated_at
+        ''', [
+          data['id'],
+          data['total_amount'],
+          data['client_name'],
+          clientTimestamp
+        ]);
+      }
+    }
+
+    await batch.commit(noResult: true);
+    print('💾 تم حفظ التحديثات اللحظية في قاعدة بيانات الهاتف.');
+  }
+
+  // إغلاق الاتصال عند التدمير
+  void dispose() {
+    _channel?.sink.close();
+    _localDb?.close();
+  }
 }`,
     },
     javascript: {
@@ -361,32 +440,445 @@ function send_nazih_core_invoice($invoice_number, $items, $customer_name = 'عم
   }'`,
     },
     websocket: {
-      title: 'WebSocket Realtime Listener (مستمع البث المباشر)',
-      filename: 'nazihSyncListener.js',
-      desc: 'استقبال الفواتير والمعاملات فور حدوثها في تطبيقات العميل عبر WebSockets.',
-      code: `// WebSocket Live Stream Listener - NazihSync
-const wsUrl = '${wsOrigin}/ws';
-const ws = new WebSocket(wsUrl);
+      title: 'Node.js + WebSockets + SQLite Listener (البث المباشر والدفع الفوري)',
+      filename: 'client_realtime_listener.js',
+      desc: 'استقبال الفواتير والمعاملات فور حدوثها في تطبيقات العميل عبر WebSockets وحفظها محلياً في SQLite.',
+      code: `const WebSocket = require('ws');
+const sqlite3 = require('sqlite3').verbose();
 
-ws.onopen = () => {
-  console.log('⚡ [NazihSync] متصل بالبث المباشر للسيرفر 24/7 بنجاح');
-};
+// 1. إعدادات العميل وهويته
+const SERVER_URL = '${wsOrigin}';
+const STORE_ID = '${storeId}';
+const DEVICE_ID = 'device_mobile_02'; // معرّف هذا الجهاز الفريد
 
-ws.onmessage = (event) => {
-  try {
-    const data = JSON.parse(event.data);
-    if (data.type === 'NEW_INVOICE') {
-      console.log('🔔 [NazihSync] تم استلام فاتورة جديدة في النظام:', data.payload.invoice);
-      // تحديث واجهة المستخدم فورياً
-    }
-  } catch (err) {
-    console.error('خطأ في معالجة رسالة WebSocket:', err);
+// 2. فتح الاتصال بقاعدة البيانات المحلية SQLite
+const db = new sqlite3.Database('./local_store.db');
+
+// تجهيز الجدول المحلي لضمان وجوده
+db.serialize(() => {
+    db.run(\`
+        CREATE TABLE IF NOT EXISTS invoices (
+            id TEXT PRIMARY KEY,
+            total_amount REAL,
+            client_name TEXT,
+            updated_at INTEGER
+        )
+    \`);
+});
+
+let ws;
+
+// 3. دالة الاتصال وإعادة الاتصال التلقائي عند انقطاع الشبكة
+function connectWebSocket() {
+    ws = new WebSocket(SERVER_URL);
+
+    ws.on('open', () => {
+        console.log('✅ تم الاتصال بالسيرفر، جاري إرسال مصادقة المتجر...');
+        
+        // إرسال كود المصادقة للاشتراك في بث المتجر الخاص بنا
+        ws.send(JSON.stringify({
+            type: 'AUTH',
+            store_id: STORE_ID,
+            device_id: DEVICE_ID
+        }));
+    });
+
+    ws.on('message', (data) => {
+        try {
+            const message = JSON.parse(data);
+
+            if (message.type === 'AUTH_OK') {
+                console.log('🔒 تم تأكيد المصادقة: الجهاز جاهز لاستقبال التحديثات اللحظية');
+            }
+
+            // استقبال التحديثات المباشرة من الأجهزة الأخرى
+            if (message.type === 'REALTIME_UPDATE') {
+                console.log(\`⚡ استلام تحديث حي من جهاز آخر (\${message.sender_device_id})\`);
+                applyMutationsToLocalDB(message.payload);
+            }
+        } catch (err) {
+            console.error('خطأ في قراءة الرسالة:', err);
+        }
+    });
+
+    ws.on('close', () => {
+        console.warn('⚠️ انقطع الاتصال بالسيرفر! إعادة المحاولة بعد 3 ثوانٍ...');
+        setTimeout(connectWebSocket, 3000); // إعادة اتصال تلقائية
+    });
+
+    ws.on('error', (err) => {
+        console.error('خطأ اتصال:', err.message);
+        ws.close();
+    });
+}
+
+// 4. دالة معالجة البيانات وتحديث SQLite المحلية
+function applyMutationsToLocalDB(mutations) {
+    db.serialize(() => {
+        const stmtInsert = db.prepare(\`
+            INSERT INTO invoices (id, total_amount, client_name, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                total_amount = excluded.total_amount,
+                client_name = excluded.client_name,
+                updated_at = excluded.updated_at
+            WHERE excluded.updated_at > invoices.updated_at
+        \`);
+
+        mutations.forEach((mutation) => {
+            const { table, action, data, client_timestamp } = mutation;
+
+            if (table === 'invoices') {
+                if (action === 'INSERT' || action === 'UPDATE') {
+                    // إدراج أو تحديث فقط إذا كانت البيانات القادمة أحدث من المخزنة محلياً
+                    stmtInsert.run(data.id, data.total_amount, data.client_name, client_timestamp);
+                    console.log(\`💾 تم حفظ الفاتورة (\${data.id}) في قاعدة البيانات المحلية\`);
+                }
+            }
+        });
+
+        stmtInsert.finalize();
+    });
+}
+
+// بدء التشغيل
+connectWebSocket();`,
+    },
+    offline_sync_flutter: {
+      title: 'Flutter Offline-First Sync (SQLite Queue & Idempotency)',
+      filename: 'offline_sync_engine.dart',
+      desc: 'محرك متكامل لتطبيق فلاتر يحفظ المعاملات في SQLite محلياً ويرسل الحزم للسيرفر مع حل التعارضات.',
+      code: `import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
+
+/// محرك المزامنة غير المتصلة - Nazih Offline-First Engine
+class NazihOfflineSyncManager {
+  static const String serverUrl = '${serverOrigin}/api/sync/batch';
+  static const String apiKey = '${apiKey}';
+  static const String storeId = '${storeId}';
+  static const String deviceId = 'pos-mobile-cairo-01';
+
+  late Database _db;
+
+  /// 1. تهيئة قاعدة البيانات المحلية وجدول طابور العمليات
+  Future<void> initLocalDatabase() async {
+    _db = await openDatabase(
+      'nazih_pos_local.db',
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS local_sync_queue (
+            operation_id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            target_table TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at INTEGER
+          )
+        ''');
+      },
+    );
   }
-};
 
-ws.onclose = () => {
-  console.log('[NazihSync] انقطع الاتصال بالويب سوكيت، جاري إعادة الاتصال تلقائياً...');
-};`,
+  /// 2. تسجيل فاتورة أو مستخلص محلياً بسرعة 0ms في وضع عدم الاتصال
+  Future<String> recordOfflineInvoice({
+    required String invoiceNumber,
+    required String customerName,
+    required List<Map<String, dynamic>> items,
+    String? costCenterCode,
+  }) async {
+    final operationId = const Uuid().v4(); // UUID v4 لمنع التكرار
+    final payload = {
+      'invoice_number': invoiceNumber,
+      'customer_name': customerName,
+      'cost_center_id': costCenterCode,
+      'items': items,
+      'offline_created_at': DateTime.now().toIso8601String(),
+    };
+
+    await _db.insert('local_sync_queue', {
+      'operation_id': operationId,
+      'action': 'INSERT',
+      'target_table': 'invoices',
+      'payload_json': jsonEncode(payload),
+      'status': 'pending',
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // محاولة المزامنة الفورية إذا توفر الإنترنت
+    syncPendingQueueToServer();
+    return operationId;
+  }
+
+  /// 3. إرسال الحزمة دفعة واحدة للسيرفر وحذف العمليات المتزامنة
+  Future<void> syncPendingQueueToServer() async {
+    final pendingRecords = await _db.query(
+      'local_sync_queue',
+      where: 'status = ?',
+      whereArgs: ['pending'],
+      limit: 50,
+    );
+
+    if (pendingRecords.isEmpty) return;
+
+    final List<Map<String, dynamic>> mutations = pendingRecords.map((r) {
+      return {
+        'operation_id': r['operation_id'],
+        'action': r['action'],
+        'table': r['target_table'],
+        'client_timestamp': r['created_at'],
+        'data': jsonDecode(r['payload_json'] as String),
+      };
+    }).toList();
+
+    try {
+      final response = await http.post(
+        Uri.parse(serverUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: jsonEncode({
+          'store_id': storeId,
+          'device_id': deviceId,
+          'mutations': mutations,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        if (result['success'] == true) {
+          // حذف العمليات التي تمت معالجتها بأمان
+          final syncedOps = (result['synced_operations'] as List)
+              .map((op) => op['operation_id'] as String)
+              .toList();
+
+          for (final opId in syncedOps) {
+            await _db.delete('local_sync_queue', where: 'operation_id = ?', whereArgs: [opId]);
+          }
+          print('✅ [Nazih Core Sync] تم مزامنة \${syncedOps.length} عملية بنجاح وحل التعارضات');
+        }
+      }
+    } catch (e) {
+      print('⚠️ [Nazih Core Sync] لا يوجد اتصال بالإنترنت حالياً: \$e');
+    }
+  }
+}`,
+    },
+    offline_sync_csharp: {
+      title: 'C# .NET Offline Sync (SQLite Queue & Background Worker)',
+      filename: 'NazihOfflineSync.cs',
+      desc: 'محرك متكامل لبرامج المحاسبة المكتبية WinForms وWPF للعمل في المواقع بدون نت.',
+      code: `using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public class NazihOfflineSync
+{
+    private static readonly HttpClient httpClient = new HttpClient();
+    private const string ServerUrl = "${serverOrigin}/api/sync/batch";
+    private const string ApiKey = "${apiKey}";
+    private const string StoreId = "${storeId}";
+    private const string DeviceId = "desktop-pos-01";
+
+    public class MutationItem
+    {
+        public string operation_id { get; set; }
+        public string action { get; set; }
+        public string table { get; set; }
+        public long client_timestamp { get; set; }
+        public object data { get; set; }
+    }
+
+    /// إرسال حزمة العمليات غير المتصلة مع التحقق من المعرف الفريد لمنع تكرار الفاتورة
+    public static async Task<bool> PushBatchSyncAsync(List<MutationItem> pendingMutations)
+    {
+        if (pendingMutations == null || pendingMutations.Count == 0) return true;
+
+        var payload = new
+        {
+            store_id = StoreId,
+            device_id = DeviceId,
+            mutations = pendingMutations
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        var request = new HttpRequestMessage(HttpMethod.Post, ServerUrl);
+        request.Headers.Add("x-api-key", ApiKey);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        try
+        {
+            var response = await httpClient.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine("✅ [Nazih Core] Sync Batch Processed: " + responseContent);
+                return true;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("⚠️ No network connection, queue retained: " + ex.Message);
+            return false;
+        }
+    }
+}`,
+    },
+    unity_game: {
+      title: 'Unity C# Game Engine SDK (Multiplayer & Cloud Saves)',
+      filename: 'NazihGameClient.cs',
+      desc: 'محرك للألعاب التنافسية (Unity 3D / 2D) لمزامنة حالة اللاعبين، لوحة المتصدرين، وحفظ تقدم اللعبة سحابياً.',
+      code: `using System;
+using System.Collections;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Networking;
+
+/// <summary>
+/// Nazih Core Game Engine SDK for Unity (C#)
+/// Supports Player State, Cloud Saves, Leaderboards, and Live Room Events
+/// </summary>
+public class NazihGameClient : MonoBehaviour
+{
+    [Header("Server Configuration")]
+    public string serverUrl = "${serverOrigin}";
+    public string apiKey = "${apiKey}";
+    public string gameTenantId = "${storeId}";
+
+    [System.Serializable]
+    public class PlayerScoreData
+    {
+        public string player_id;
+        public string player_name;
+        public int score;
+        public int level_reached;
+        public string extra_json;
+    }
+
+    /// <summary>
+    /// إرسال نتيجة اللاعب وتحديث لوحة المتصدرين فورياً في السيرفر
+    /// </summary>
+    public void SubmitScore(string playerId, string playerName, int score, int level)
+    {
+        StartCoroutine(PostScoreRoutine(playerId, playerName, score, level));
+    }
+
+    private IEnumerator PostScoreRoutine(string playerId, string playerName, int score, int level)
+    {
+        string endpoint = serverUrl + "/api/v1/game/leaderboard";
+        var payload = new PlayerScoreData
+        {
+            player_id = playerId,
+            player_name = playerName,
+            score = score,
+            level_reached = level,
+            extra_json = "{\\"platform\\": \\"Unity\\", \\"timestamp\\": \\"" + DateTime.UtcNow.ToString("o") + "\\"}"
+        };
+
+        string jsonPayload = JsonUtility.ToJson(payload);
+        using (UnityWebRequest req = new UnityWebRequest(endpoint, "POST"))
+        {
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonPayload);
+            req.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.SetRequestHeader("x-api-key", apiKey);
+
+            yield return req.SendWebRequest();
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log("🏆 [Nazih Game Core] Score Submitted Successfully: " + req.downloadHandler.text);
+            }
+            else
+            {
+                Debug.LogError("❌ [Nazih Game Core] Failed to submit score: " + req.error);
+            }
+        }
+    }
+}`,
+    },
+    godot_game: {
+      title: 'Godot Engine GDScript (WebSockets Multiplayer & REST)',
+      filename: 'NazihGameClient.gd',
+      desc: 'عميل ألعاب خفيف لمحرك Godot Engine 4.x للاتصال بالسيرفر وإرسال البيانات والتحكم بالغرف الجماعية.',
+      code: `extends Node
+class_name NazihGameClient
+
+# Nazih Core GDScript Client for Godot Engine 4.x
+const SERVER_URL = "${serverOrigin}"
+const API_KEY = "${apiKey}"
+const GAME_STORE_ID = "${storeId}"
+
+var http_request : HTTPRequest
+
+func _ready():
+    http_request = HTTPRequest.new()
+    add_child(http_request)
+    http_request.request_completed.connect(_on_request_completed)
+
+# 1. إرسال حدث حفظ سحابي للعبة (Cloud Save)
+func save_player_state(player_id: String, state_dict: Dictionary):
+    var endpoint = SERVER_URL + "/api/v1/game/cloud-save"
+    var headers = [
+        "Content-Type: application/json",
+        "x-api-key: " + API_KEY
+    ]
+    var body = JSON.stringify({
+        "game_id": GAME_STORE_ID,
+        "player_id": player_id,
+        "state": state_dict,
+        "timestamp": Time.get_datetime_string_from_system(true)
+    })
+    
+    var error = http_request.request(endpoint, headers, HTTPClient.METHOD_POST, body)
+    if error != OK:
+        push_error("❌ خطأ أثناء إرسال بيانات اللعبة لمحرك Nazih Core")
+
+func _on_request_completed(result, response_code, headers, body):
+    if response_code == 200 or response_code == 201:
+        print("✅ [Nazih Core] تم حفظ تقدم اللعبة بنجاح على السيرفر")
+    else:
+        print("⚠️ خطأ في الاستجابة: ", response_code)`,
+    },
+    redis_cache: {
+      title: 'In-Memory Key-Value Store (Redis-Like Sub-millisecond Engine)',
+      filename: 'cache_client.js',
+      desc: 'محرك كاش سريع جداً في الذاكرة لتسريع قراءة البيانات وحفظ جلسات المستخدمين (Sessions & Rate Limiting).',
+      code: `// Nazih Core In-Memory Cache Engine Client
+const axios = require('axios');
+
+const SERVER_URL = '${serverOrigin}';
+const API_KEY = '${apiKey}';
+
+async function setCache(key, value, ttlSeconds = 300) {
+    const res = await axios.post(\`\${SERVER_URL}/api/v1/cache/set\`, {
+        key: key,
+        value: value,
+        ttl_seconds: ttlSeconds
+    }, {
+        headers: { 'x-api-key': API_KEY }
+    });
+    console.log('⚡ [Nazih Cache SET]:', res.data);
+}
+
+async function getCache(key) {
+    const res = await axios.get(\`\${SERVER_URL}/api/v1/cache/get/\${key}\`, {
+        headers: { 'x-api-key': API_KEY }
+    });
+    console.log('⚡ [Nazih Cache GET]:', res.data);
+    return res.data;
+}
+
+// استخدام عملي: كاش سريع لفواتير المتجر لتفادي الضغط على قاعدة البيانات
+setCache('store_${storeId}_today_total', { total: 45200.50, count: 142 }, 60);`,
     },
   };
 
@@ -439,9 +931,14 @@ ws.onclose = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-1">
         {[
           { id: 'flutter', label: 'Flutter / Dart', icon: Smartphone },
+          { id: 'offline_sync_flutter', label: 'Flutter Offline Sync (SQLite)', icon: Smartphone },
           { id: 'javascript', label: 'JavaScript / React', icon: Globe },
+          { id: 'unity_game', label: 'Unity 3D/2D (C# Game Engine)', icon: Gamepad2 },
+          { id: 'godot_game', label: 'Godot Engine 4 (GDScript)', icon: Gamepad2 },
+          { id: 'redis_cache', label: 'In-Memory Cache (Redis Fast)', icon: Database },
           { id: 'python', label: 'Python', icon: Terminal },
           { id: 'csharp', label: 'C# / .NET POS', icon: Server },
+          { id: 'offline_sync_csharp', label: 'C# Offline Sync Engine', icon: Server },
           { id: 'php', label: 'PHP / Laravel', icon: Layers },
           { id: 'curl', label: 'cURL / Bash', icon: Terminal },
           { id: 'websocket', label: 'WebSocket البث المباشر', icon: Radio },

@@ -14,9 +14,14 @@ import {
   Layers,
   ListFilter,
   Sparkles,
+  Printer,
+  FileDown,
 } from 'lucide-react';
 import { InvoiceRecord, ItemAggregation, ClientRecord } from '../types';
 import { InvoiceDetailModal } from './InvoiceDetailModal';
+import { safeFetchJson } from '../lib/api';
+import { exportSingleInvoiceToPdf, exportBatchInvoicesReportToPdf } from '../lib/pdfExporter';
+import { useLanguage } from '../lib/i18n';
 
 interface ManagerDashboardProps {
   clients: ClientRecord[];
@@ -31,6 +36,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
   onInspectInvoice,
   onTriggerSimulation,
 }) => {
+  const { t, language } = useLanguage();
   // Filters & State
   const [selectedStore, setSelectedStore] = useState<string>('ALL');
   const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
@@ -66,17 +72,12 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
     if (rangeDates.end) url += `&end_date=${encodeURIComponent(rangeDates.end)}`;
 
     try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        console.warn(`[AggregatedItems] API status ${res.status}`);
-        return;
-      }
-      const data = await res.json();
-      if (data && data.success) {
-        setAggregatedItems(data.items || []);
+      const res = await safeFetchJson<{ success: boolean; items: ItemAggregation[] }>(url);
+      if (res.success && res.data?.items) {
+        setAggregatedItems(res.data.items);
       }
     } catch (e) {
-      console.error('Error fetching aggregations', e);
+      console.warn('[Aggregations] Warning loading items:', e);
     } finally {
       setIsLoadingItems(false);
     }
@@ -94,19 +95,19 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
     if (rangeDates.end) url += `&end_date=${encodeURIComponent(rangeDates.end)}`;
 
     try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        console.warn(`[Invoices] API status ${res.status}`);
-        return;
-      }
-      const data = await res.json();
-      if (data && data.success) {
-        setInvoices(data.invoices || []);
-        setTotalPages(data.total_pages || 1);
-        setTotalRecords(data.total_count || 0);
+      const res = await safeFetchJson<{
+        success: boolean;
+        invoices: InvoiceRecord[];
+        total_pages: number;
+        total_count: number;
+      }>(url);
+      if (res.success && res.data) {
+        setInvoices(res.data.invoices || []);
+        setTotalPages(res.data.total_pages || 1);
+        setTotalRecords(res.data.total_count || 0);
       }
     } catch (e) {
-      console.error('Error fetching invoices', e);
+      console.warn('[Invoices] Warning loading invoices:', e);
     } finally {
       setIsLoadingInvoices(false);
     }
@@ -115,17 +116,12 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
   // Fetch Summary
   const fetchSummary = async () => {
     try {
-      const res = await fetch('/api/analytics/summary');
-      if (!res.ok) {
-        console.warn(`[Summary] API status ${res.status}`);
-        return;
-      }
-      const data = await res.json();
-      if (data && data.success) {
-        setSummaryStats(data.summary);
+      const res = await safeFetchJson<{ success: boolean; summary: any }>('/api/analytics/summary');
+      if (res.success && res.data?.summary) {
+        setSummaryStats(res.data.summary);
       }
     } catch (e) {
-      console.error('Error fetching summary', e);
+      console.warn('[Summary] Warning loading summary:', e);
     }
   };
 
@@ -192,35 +188,34 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
         </div>
       )}
 
-      {/* FILTER & STORE SCOPE TOOLBAR */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-wrap">
+      {/* FILTER & STORE SCOPE TOOLBAR - FULLY MOBILE-FIRST */}
+      <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2">
-            <Store className="w-4 h-4 text-blue-600" />
+            <Store className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">نطاق المتجر:</span>
+            <select
+              id="manager-store-select"
+              value={selectedStore}
+              onChange={(e) => {
+                setSelectedStore(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="bg-slate-50 border border-slate-300 text-xs font-medium text-slate-800 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition shadow-2xs cursor-pointer flex-1 sm:flex-initial"
+            >
+              <option value="ALL">{t.allStores}</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.store_id}>
+                  {c.name} ({c.store_id})
+                </option>
+              ))}
+            </select>
           </div>
-
-          <select
-            id="manager-store-select"
-            value={selectedStore}
-            onChange={(e) => {
-              setSelectedStore(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="bg-slate-50 border border-slate-300 text-xs font-medium text-slate-800 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition shadow-2xs cursor-pointer"
-          >
-            <option value="ALL">جميع المتاجر المتصلة (تجميع شامل)</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.store_id}>
-                {c.name} ({c.store_id})
-              </option>
-            ))}
-          </select>
 
           <div className="h-4 w-px bg-slate-200 hidden sm:block" />
 
           {/* DATE RANGE TOGGLES */}
-          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-medium gap-1">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-medium gap-1 w-full sm:w-auto">
             {(['today', '7d', '30d', 'all'] as const).map((r) => (
               <button
                 key={r}
@@ -229,22 +224,22 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                   setDateRange(r);
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-lg transition cursor-pointer text-center text-[11px] sm:text-xs ${
                   dateRange === r
                     ? 'bg-blue-600 text-white font-semibold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {r === 'all' ? 'كامل المدة' : r === '7d' ? 'آخر 7 أيام' : r === '30d' ? 'آخر 30 يوم' : 'اليوم'}
+                {r === 'all' ? t.allTime : r === '7d' ? t.last7Days : r === '30d' ? t.last30Days : t.today}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-slate-500 font-sans">
-          <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-200">
-            <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-            <span className="font-semibold">المزامنة الحية الفورية نشطة</span>
+        <div className="flex items-center justify-between sm:justify-end gap-3 text-xs text-slate-500 font-sans">
+          <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-xl border border-emerald-200 text-[11px]">
+            <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse shrink-0" />
+            <span className="font-semibold">{t.realtimeSync}</span>
           </div>
         </div>
       </div>
@@ -253,7 +248,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:border-slate-300 transition">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>إجمالي الإيرادات</span>
+            <span>{t.totalRevenue}</span>
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
               <DollarSign className="w-4 h-4" />
             </div>
@@ -262,13 +257,13 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
             <span className="text-2xl font-bold text-slate-900 tracking-tight font-sans">
               ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </span>
-            <span className="text-xs text-emerald-600 font-medium">مكتمل 100%</span>
+            <span className="text-xs text-emerald-600 font-medium">100% ACID</span>
           </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:border-slate-300 transition">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>عدد الفواتير الكلي</span>
+            <span>{t.totalInvoices}</span>
             <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
               <Receipt className="w-4 h-4" />
             </div>
@@ -278,14 +273,14 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
               {totalInvoicesAll.toLocaleString()}
             </span>
             <span className="text-xs text-slate-500 font-sans">
-              المتوسط: ${totalInvoicesAll > 0 ? (totalRevenue / totalInvoicesAll).toFixed(2) : '0.00'}
+              {language === 'ar' ? 'المتوسط:' : 'Avg:'} ${totalInvoicesAll > 0 ? (totalRevenue / totalInvoicesAll).toFixed(2) : '0.00'}
             </span>
           </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:border-slate-300 transition">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>القطع / الأصناف المباعة</span>
+            <span>{t.itemsSold}</span>
             <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
               <Boxes className="w-4 h-4" />
             </div>
@@ -294,20 +289,20 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
             <span className="text-2xl font-bold text-slate-900 tracking-tight font-sans">
               {totalItemsSold.toLocaleString()}
             </span>
-            <span className="text-xs text-amber-600 font-sans font-medium">تسجيل فوري</span>
+            <span className="text-xs text-amber-600 font-sans font-medium">{language === 'ar' ? 'تسجيل فوري' : 'Live Ingest'}</span>
           </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:border-slate-300 transition">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>المتاجر النشطة</span>
+            <span>{t.activeStores}</span>
             <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
               <Store className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl font-bold text-slate-900 tracking-tight font-sans">{activeStoresCount}</span>
-            <span className="text-xs text-indigo-600 font-sans">{clients.length} مسجل بالنظام</span>
+            <span className="text-xs text-indigo-600 font-sans">{clients.length} {language === 'ar' ? 'مسجل بالنظام' : 'Registered'}</span>
           </div>
         </div>
       </div>
@@ -323,7 +318,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
               </span>
-              <h3 className="font-bold text-slate-900 text-sm">البث المباشر للفواتير الواردة</h3>
+              <h3 className="font-bold text-slate-900 text-sm">{t.liveFeed}</h3>
             </div>
             <button
               id="live-stream-sim-btn"
@@ -331,7 +326,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
               className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 transition flex items-center gap-1 font-medium cursor-pointer"
             >
               <Sparkles className="w-3 h-3 text-blue-600" />
-              <span>محاكاة</span>
+              <span>{t.simulate}</span>
             </button>
           </div>
 
@@ -340,26 +335,27 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
             {liveInvoices.length === 0 ? (
               <div className="text-center py-16 text-slate-400 text-xs">
                 <Radio className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                <p className="text-slate-500">في انتظار ورود فواتير جديدة من شاشات الكاشير...</p>
+                <p className="text-slate-500">{t.waitingLive}</p>
                 <button
                   onClick={onTriggerSimulation}
                   className="mt-3 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white transition text-xs font-semibold cursor-pointer"
                 >
-                  إرسال فاتورة تجريبية
+                  {t.sendTest}
                 </button>
               </div>
             ) : (
               liveInvoices.map((item, idx) => {
                 const inv = item.invoice;
+                const clientObj = clients.find((c) => c.store_id === inv.store_id);
                 const itemsSummary =
                   item.items && item.items.length > 0
                     ? item.items.map((it: any) => `${it.quantity}× ${it.item_name}`).join('، ')
-                    : `${inv.item_count} أصناف`;
+                    : `${inv.item_count} ${t.items}`;
 
                 return (
                   <div
                     key={inv.id || idx}
-                    className="bg-slate-50/80 hover:bg-slate-100 p-3.5 rounded-xl border border-slate-200/80 hover:border-slate-300 transition group cursor-pointer"
+                    className="bg-slate-50/80 hover:bg-slate-100 p-3.5 rounded-xl border border-slate-200/80 hover:border-slate-300 transition group cursor-pointer relative"
                     onClick={() => setInspectModalInvoice(inv)}
                   >
                     <div className="flex items-center justify-between">
@@ -371,21 +367,33 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                           {item.store?.name || inv.store_id}
                         </span>
                       </div>
-                      <span className="text-sm font-bold text-emerald-600 font-sans">
-                        ${inv.total_amount.toFixed(2)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-emerald-600 font-sans">
+                          ${inv.total_amount.toFixed(2)}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            exportSingleInvoiceToPdf(inv, clientObj);
+                          }}
+                          className="p-1 rounded-lg bg-white hover:bg-blue-600 text-slate-500 hover:text-white border border-slate-200 transition shadow-2xs cursor-pointer"
+                          title={language === 'ar' ? 'تصدير هذه الفاتورة كـ PDF' : 'Export this invoice as PDF'}
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="text-[11px] text-slate-600 mt-1 truncate">{itemsSummary}</div>
 
                     <div className="flex items-center justify-between text-[10px] text-slate-500 mt-2">
                       <span>
-                        {inv.customer_name || 'عميل نقدي'} •{' '}
+                        {inv.customer_name || t.cashCustomer} •{' '}
                         <span className="text-slate-700 font-medium">
-                          {inv.payment_method === 'card' ? 'بطاقة' : inv.payment_method === 'cash' ? 'نقداً' : inv.payment_method === 'online' ? 'دفع إلكتروني' : inv.payment_method}
+                          {inv.payment_method === 'card' ? t.card : inv.payment_method === 'cash' ? t.cash : inv.payment_method === 'online' ? t.online : inv.payment_method}
                         </span>
                       </span>
-                      <span className="font-sans">{new Date(inv.created_at).toLocaleTimeString('ar-EG')}</span>
+                      <span className="font-sans">{new Date(inv.created_at).toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
                     </div>
                   </div>
                 );
@@ -395,29 +403,29 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
         </div>
 
         {/* RIGHT COLUMN: AGGREGATED ITEMS (GROUP BY item_name) (7 COLS) */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 mb-4 gap-3">
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 shadow-sm flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 mb-3 gap-2.5">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span>تحليلات الأصناف المباعة</span>
-                <code className="text-xs text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-mono">GROUP BY item_name</code>
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>{t.topSellingItems}</span>
+                <code className="text-[10px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 font-mono">GROUP BY</code>
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                تجميع فوري للكميات والإيرادات والطلبات للمتاجر المحددة.
+              <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
+                {language === 'ar' ? 'تجميع فوري للكميات والإيرادات والطلبات للمتاجر المحددة.' : 'Real-time aggregated volume, revenue, and order breakdown.'}
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="relative">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial">
                 <input
                   type="text"
                   id="item-search-input"
                   value={itemSearch}
                   onChange={(e) => setItemSearch(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && fetchAggregatedItems()}
-                  placeholder="بحث في الأصناف..."
-                  className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl pr-8 pl-3 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 w-36 sm:w-44 shadow-2xs"
+                  placeholder={t.searchPlaceholder}
+                  className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl pr-8 pl-3 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 w-full sm:w-40 shadow-2xs"
                 />
                 <Search className="w-3.5 h-3.5 absolute right-2.5 top-2 text-slate-400" />
               </div>
@@ -426,39 +434,69 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                 id="item-sort-select"
                 value={sortBy}
                 onChange={(e: any) => setSortBy(e.target.value)}
-                className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-600 shadow-2xs cursor-pointer"
+                className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-600 shadow-2xs cursor-pointer shrink-0"
               >
-                <option value="revenue">الأعلى إيراداً</option>
-                <option value="quantity">الأكثر مبيعاً (كمية)</option>
-                <option value="orders">عدد الطلبات</option>
-                <option value="name">اسم الصنف</option>
+                <option value="revenue">{t.topRevenue}</option>
+                <option value="quantity">{t.bestSelling}</option>
+                <option value="orders">{t.orders}</option>
+                <option value="name">{t.name}</option>
               </select>
             </div>
           </div>
 
-          {/* AGGREGATED ITEMS TABLE */}
-          <div className="overflow-x-auto flex-1 max-h-[560px]">
+          {/* MOBILE CARDS VIEW FOR ITEMS (HIDDEN ON DESKTOP) */}
+          <div className="block sm:hidden space-y-2 max-h-[450px] overflow-y-auto">
+            {isLoadingItems ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                {t.loading}
+              </div>
+            ) : aggregatedItems.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                {t.noData}
+              </div>
+            ) : (
+              aggregatedItems.map((it, idx) => (
+                <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-2xs flex items-center justify-between">
+                  <div className="min-w-0 flex-1 pl-2">
+                    <div className="font-bold text-xs text-slate-900 truncate">{it.item_name}</div>
+                    <div className="text-[10px] text-slate-500 font-medium">{it.category || (language === 'ar' ? 'عام' : 'General')} • {it.order_count} {t.orders}</div>
+                  </div>
+                  <div className="text-left shrink-0">
+                    <div className="text-xs font-bold text-emerald-600 font-sans">
+                      ${it.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-[10px] text-slate-600 font-sans font-medium">
+                      {it.total_quantity.toLocaleString()} {language === 'ar' ? 'وحدة' : 'units'}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* AGGREGATED ITEMS TABLE (DESKTOP) */}
+          <div className="hidden sm:block overflow-x-auto flex-1 max-h-[560px]">
             <table className="w-full text-right text-xs text-slate-700">
               <thead className="bg-slate-50 text-[11px] font-semibold text-slate-500 border-b border-slate-200 sticky top-0 backdrop-blur">
                 <tr>
-                  <th className="py-2.5 px-3">اسم الصنف / التصنيف</th>
-                  <th className="py-2.5 px-3 text-left">الكمية المباعة</th>
-                  <th className="py-2.5 px-3 text-left">متوسط السعر</th>
-                  <th className="py-2.5 px-3 text-left">إجمالي الإيراد</th>
-                  <th className="py-2.5 px-3 text-left">الطلبات</th>
+                  <th className="py-2.5 px-3">{t.itemName}</th>
+                  <th className="py-2.5 px-3 text-left">{t.qtySold}</th>
+                  <th className="py-2.5 px-3 text-left">{t.avgPrice}</th>
+                  <th className="py-2.5 px-3 text-left">{t.totalRevenue}</th>
+                  <th className="py-2.5 px-3 text-left">{t.orders}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
                 {isLoadingItems ? (
                   <tr>
                     <td colSpan={5} className="py-12 text-center text-slate-400">
-                      جاري استعلام تجميع البيانات من قاعدة بيانات SQLite...
+                      {t.loading}
                     </td>
                   </tr>
                 ) : aggregatedItems.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-12 text-center text-slate-400">
-                      لا توجد مبيعات مسجلة تطابق محددات البحث.
+                      {t.noData}
                     </td>
                   </tr>
                 ) : (
@@ -467,7 +505,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900">{it.item_name}</div>
                         <div className="text-[10px] text-slate-500 font-medium">
-                          {it.category || 'عام'}
+                          {it.category || (language === 'ar' ? 'عام' : 'General')}
                         </div>
                       </td>
                       <td className="py-3 px-3 text-left font-sans font-bold text-slate-800">
@@ -493,34 +531,50 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
       </div>
 
       {/* LOWER SECTION: HISTORIC INVOICE EXPLORER WITH PAGINATION */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 mb-4 gap-3">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-blue-600" />
-              <span>مستكشف سجل الفواتير والمبيعات</span>
+      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 shadow-sm space-y-4">
+        {/* SECTION HEADER & CONTROLS - FULLY RESPONSIVE */}
+        <div className="flex flex-col gap-3 border-b border-slate-200 pb-3.5">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>{t.invoiceExplorer}</span>
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              محرك استعلام عالي الكفاءة مع ترقيم الصفحات (`LIMIT 15 OFFSET ?`).
-            </p>
+            {/* EXPORT BATCH PDF BUTTON */}
+            <button
+              id="export-batch-pdf-btn"
+              onClick={() => {
+                const storeObj = clients.find((c) => c.store_id === selectedStore);
+                exportBatchInvoicesReportToPdf(invoices, {
+                  storeName: selectedStore === 'ALL' ? (language === 'ar' ? 'كافة الفروع والمتاجر الموحدة' : 'All Stores Consolidated') : storeObj?.name || selectedStore,
+                  dateRangeLabel: dateRange === 'all' ? t.allTime : dateRange === '7d' ? t.last7Days : dateRange === '30d' ? t.last30Days : t.today,
+                });
+              }}
+              disabled={invoices.length === 0}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-200 transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
+              title={language === 'ar' ? 'تصدير جدول الفواتير الحالي كتقرير PDF رسمي' : 'Export current invoice table as PDF report'}
+            >
+              <FileDown className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-xs">{t.exportPdf}</span>
+            </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* CONTROLS ROW: TABS & SEARCH INPUT */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             {/* ACTIVE VS ARCHIVED TOGGLE */}
-            <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs gap-1">
+            <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs gap-1 w-full sm:w-auto">
               <button
                 id="tab-active-invoices"
                 onClick={() => {
                   setInvoiceType('active');
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg font-medium transition cursor-pointer text-center ${
                   invoiceType === 'active'
                     ? 'bg-blue-600 text-white font-semibold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                النشطة (Hot Table)
+                {t.activeInvoices}
               </button>
               <button
                 id="tab-archived-invoices"
@@ -528,126 +582,206 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                   setInvoiceType('archived');
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg font-medium transition cursor-pointer text-center ${
                   invoiceType === 'archived'
                     ? 'bg-blue-600 text-white font-semibold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                المؤرشفة (Cold Table)
+                {t.archivedInvoices}
               </button>
             </div>
 
-            <div className="relative">
+            {/* SEARCH INPUT FIT TO FULL WIDTH ON MOBILE */}
+            <div className="relative w-full sm:w-64">
               <input
                 type="text"
                 id="invoice-search-input"
                 value={invoiceSearch}
                 onChange={(e) => setInvoiceSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && fetchInvoices()}
-                placeholder="بحث برقم الفاتورة أو اسم العميل..."
-                className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl pr-8 pl-3 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 w-48 sm:w-64 shadow-2xs"
+                placeholder={t.searchPlaceholder}
+                className="bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded-xl pr-8 pl-3 py-2 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 w-full shadow-2xs"
               />
-              <Search className="w-3.5 h-3.5 absolute right-2.5 top-2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute right-2.5 top-2.5 text-slate-400" />
             </div>
           </div>
         </div>
 
-        {/* INVOICES TABLE */}
-        <div className="overflow-x-auto">
+        {/* MOBILE VIEW: RESPONSIVE CARDS (HIDDEN ON DESKTOP) */}
+        <div className="block md:hidden space-y-2.5">
+          {isLoadingInvoices ? (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              {t.loading}
+            </div>
+          ) : invoices.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              {t.noData}
+            </div>
+          ) : (
+            invoices.map((inv) => {
+              const clientObj = clients.find((c) => c.store_id === inv.store_id);
+              return (
+                <div
+                  key={inv.id}
+                  className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-2xs space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-white text-slate-900 border border-slate-200 font-mono text-xs font-bold">
+                      {inv.invoice_number}
+                    </span>
+                    <span className="text-sm font-bold text-emerald-600 font-sans">
+                      ${inv.total_amount.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span className="font-semibold text-slate-800">{inv.customer_name || t.cashCustomer}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                        inv.payment_method === 'card'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {inv.payment_method === 'card' ? t.card : inv.payment_method === 'cash' ? t.cash : inv.payment_method === 'online' ? t.online : inv.payment_method}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60">
+                    <span className="font-mono text-[10px]">{inv.store_id} • {inv.item_count} {t.items}</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setInspectModalInvoice(inv)}
+                        className="px-2 py-1 rounded-lg bg-white hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 transition text-[11px] font-medium flex items-center gap-1 cursor-pointer"
+                        title={t.preview}
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>{t.preview}</span>
+                      </button>
+                      <button
+                        onClick={() => exportSingleInvoiceToPdf(inv, clientObj)}
+                        className="p-1 rounded-lg bg-white hover:bg-emerald-600 text-slate-600 hover:text-white border border-slate-200 transition text-[11px] cursor-pointer"
+                        title={language === 'ar' ? 'تصدير وطباعة PDF' : 'Export & print PDF'}
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* DESKTOP VIEW: STANDARD DATA TABLE (HIDDEN ON MOBILE) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right text-xs text-slate-700">
             <thead className="bg-slate-50 text-[11px] font-semibold text-slate-500 border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4">رقم الفاتورة</th>
-                <th className="py-3 px-4">رمز المتجر</th>
-                <th className="py-3 px-4">العميل</th>
-                <th className="py-3 px-4">طريقة الدفع</th>
-                <th className="py-3 px-4 text-center">الأصناف</th>
-                <th className="py-3 px-4 text-left">المبلغ الإجمالي</th>
-                <th className="py-3 px-4">التاريخ والوقت</th>
-                <th className="py-3 px-4 text-center">الإجراء</th>
+                <th className="py-3 px-4">{t.invoiceNumber}</th>
+                <th className="py-3 px-4">{t.storeId}</th>
+                <th className="py-3 px-4">{t.customer}</th>
+                <th className="py-3 px-4">{t.paymentMethod}</th>
+                <th className="py-3 px-4 text-center">{t.items}</th>
+                <th className="py-3 px-4 text-left">{t.total}</th>
+                <th className="py-3 px-4">{t.dateTime}</th>
+                <th className="py-3 px-4 text-center">{t.actions}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoadingInvoices ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
-                    جاري تحميل الفواتير من قاعدة بيانات SQLite...
+                    {t.loading}
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
-                    لا توجد فواتير مسجلة في جدول {invoiceType === 'active' ? 'الفواتير النشطة' : 'الأرشيف'}.
+                    {t.noData}
                   </td>
                 </tr>
               ) : (
-                invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-slate-50 transition">
-                    <td className="py-3 px-4 font-bold text-slate-900 font-mono">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-medium">
-                        {inv.invoice_number}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 text-xs font-mono">{inv.store_id}</td>
-                    <td className="py-3 px-4 text-slate-800 font-medium">{inv.customer_name || 'عميل نقدي'}</td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          inv.payment_method === 'card'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}
-                      >
-                        {inv.payment_method === 'card' ? 'بطاقة' : inv.payment_method === 'cash' ? 'نقداً' : inv.payment_method === 'online' ? 'دفع إلكتروني' : inv.payment_method}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center text-slate-700 font-sans">{inv.item_count}</td>
-                    <td className="py-3 px-4 text-left font-bold text-emerald-600 font-sans">
-                      ${inv.total_amount.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 text-slate-500 text-[11px] font-sans">
-                      {new Date(inv.created_at).toLocaleString('ar-EG')}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        onClick={() => setInspectModalInvoice(inv)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 transition text-xs font-medium flex items-center gap-1 mx-auto cursor-pointer"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>معاينة</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                invoices.map((inv) => {
+                  const clientObj = clients.find((c) => c.store_id === inv.store_id);
+                  return (
+                    <tr key={inv.id} className="hover:bg-slate-50 transition">
+                      <td className="py-3 px-4 font-bold text-slate-900 font-mono">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-medium">
+                          {inv.invoice_number}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 text-xs font-mono">{inv.store_id}</td>
+                      <td className="py-3 px-4 text-slate-800 font-medium">{inv.customer_name || t.cashCustomer}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            inv.payment_method === 'card'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {inv.payment_method === 'card' ? t.card : inv.payment_method === 'cash' ? t.cash : inv.payment_method === 'online' ? t.online : inv.payment_method}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center text-slate-700 font-sans">{inv.item_count}</td>
+                      <td className="py-3 px-4 text-left font-bold text-emerald-600 font-sans">
+                        ${inv.total_amount.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 text-[11px] font-sans">
+                        {new Date(inv.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setInspectModalInvoice(inv)}
+                            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 transition text-xs font-medium flex items-center gap-1 cursor-pointer"
+                            title={t.preview}
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>{t.preview}</span>
+                          </button>
+                          <button
+                            onClick={() => exportSingleInvoiceToPdf(inv, clientObj)}
+                            className="p-1 rounded-lg bg-slate-100 hover:bg-emerald-600 text-slate-600 hover:text-white border border-slate-200 transition text-xs cursor-pointer"
+                            title={language === 'ar' ? 'تصدير وطباعة PDF مباشرة' : 'Export & print PDF'}
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
-        {/* PAGINATION CONTROLS */}
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 mt-4 text-xs text-slate-500">
-          <div>
-            عرض صفحة <span className="font-bold text-slate-900 font-sans">{currentPage}</span> من{' '}
-            <span className="font-bold text-slate-900 font-sans">{totalPages}</span> (إجمالي <span className="font-sans">{totalRecords.toLocaleString()}</span> فاتورة)
+        {/* PAGINATION CONTROLS - RESPONSIVE */}
+        <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-500 gap-2">
+          <div className="text-center sm:text-right">
+            {t.page} <span className="font-bold text-slate-900 font-sans">{currentPage}</span> {t.of}{' '}
+            <span className="font-bold text-slate-900 font-sans">{totalPages}</span> ({t.total} <span className="font-sans">{totalRecords.toLocaleString()}</span> {t.items})
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
             <button
               id="prev-page-btn"
               disabled={currentPage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium flex items-center gap-1 shadow-2xs cursor-pointer"
+              className="flex-1 sm:flex-initial px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
             >
               <ChevronRight className="w-3.5 h-3.5" />
-              <span>السابق</span>
+              <span>{t.previous}</span>
             </button>
             <button
               id="next-page-btn"
               disabled={currentPage >= totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium flex items-center gap-1 shadow-2xs cursor-pointer"
+              className="flex-1 sm:flex-initial px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
             >
-              <span>التالي</span>
+              <span>{t.next}</span>
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
           </div>

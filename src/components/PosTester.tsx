@@ -11,8 +11,11 @@ import {
   Clock,
   Terminal,
   Zap,
+  Languages,
+  RotateCw,
 } from 'lucide-react';
 import { ClientRecord } from '../types';
+import { useLanguage } from '../lib/i18n';
 
 interface PosTesterProps {
   clients: ClientRecord[];
@@ -28,17 +31,33 @@ interface CartItem {
 }
 
 export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) => {
+  const { language, t } = useLanguage();
   const [selectedApiKey, setSelectedApiKey] = useState<string>('');
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('عميل نقدي');
+  const [customerName, setCustomerName] = useState<string>(
+    language === 'ar' ? 'عميل نقدي' : 'Cash Customer'
+  );
   const [paymentMethod, setPaymentMethod] = useState<string>('card');
 
   const [cart, setCart] = useState<CartItem[]>([
-    { item_name: 'قهوة كولد برو كولومبي', category: 'مشروبات', quantity: 2, unit_price: 4.75, total_price: 9.5 },
-    { item_name: 'كرواسون زبدة فرنسي', category: 'مخبوزات', quantity: 1, unit_price: 3.95, total_price: 3.95 },
+    {
+      item_name: language === 'ar' ? 'قهوة كولد برو كولومبي' : 'Cold Brew Coffee Colombian',
+      category: language === 'ar' ? 'مشروبات' : 'Beverages',
+      quantity: 2,
+      unit_price: 4.75,
+      total_price: 9.5,
+    },
+    {
+      item_name: language === 'ar' ? 'كرواسون زبدة فرنسي' : 'French Butter Croissant',
+      category: language === 'ar' ? 'مخبوزات' : 'Bakery',
+      quantity: 1,
+      unit_price: 3.95,
+      total_price: 3.95,
+    },
   ]);
 
   const [isSending, setIsSending] = useState<boolean>(false);
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [responseLatency, setResponseLatency] = useState<number | null>(null);
   const [responseData, setResponseData] = useState<any>(null);
@@ -75,11 +94,11 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
         unit_price: it.unit_price,
         total_price: it.total_price,
       })),
-      notes: 'معاملة تجريبية لنقطة بيع كاشير',
+      notes: language === 'ar' ? 'معاملة تجريبية لنقطة بيع كاشير' : 'POS Cashier simulator test transaction',
       timestamp: new Date().toISOString(),
     };
     setCustomJson(JSON.stringify(payload, null, 2));
-  }, [cart, selectedStoreId, customerName, paymentMethod, clients]);
+  }, [cart, selectedStoreId, customerName, paymentMethod, clients, language]);
 
   const handleSelectClient = (apiKey: string) => {
     setSelectedApiKey(apiKey);
@@ -126,9 +145,51 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
     );
   };
 
+  // Instant server-side translation of the current invoice
+  const handleServerTranslateInvoice = async () => {
+    setIsTranslating(true);
+    try {
+      let currentPayload: any;
+      try {
+        currentPayload = JSON.parse(customJson);
+      } catch {
+        currentPayload = {
+          items: cart,
+          notes: 'POS invoice notes',
+        };
+      }
+
+      const targetLang = language === 'ar' ? 'en' : 'ar';
+      const res = await fetch('/api/translate/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payload: currentPayload,
+          targetLang: targetLang,
+        }),
+      });
+
+      const data = await res.json();
+      if (data && data.success && data.translated) {
+        setCustomJson(JSON.stringify(data.translated, null, 2));
+        if (Array.isArray(data.translated.items)) {
+          setCart(data.translated.items);
+        }
+      }
+    } catch (err) {
+      console.error('Translation error:', err);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const sendInvoice = async () => {
     if (!selectedApiKey) {
-      alert('يرجى اختيار أو إدخال مفتاح API Key الخاص بالمتجر');
+      alert(
+        language === 'ar'
+          ? 'يرجى اختيار أو إدخال مفتاح API Key الخاص بالمتجر'
+          : 'Please select or enter the store API Key'
+      );
       return;
     }
 
@@ -136,7 +197,11 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
     try {
       payloadObj = JSON.parse(customJson);
     } catch (e) {
-      alert('خطأ في صياغة الـ JSON في حقل البيانات');
+      alert(
+        language === 'ar'
+          ? 'خطأ في صياغة الـ JSON في حقل البيانات'
+          : 'Invalid JSON formatting in request body'
+      );
       return;
     }
 
@@ -177,18 +242,37 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
   const tax = Number((subtotal * 0.08).toFixed(2));
   const grandTotal = Number((subtotal + tax).toFixed(2));
 
+  const catalogItems =
+    language === 'ar'
+      ? [
+          { name: 'قهوة كولد برو كولومبي', cat: 'مشروبات', price: 4.75 },
+          { name: 'كرواسون زبدة فرنسي', cat: 'مخبوزات', price: 3.95 },
+          { name: 'ماتشا لاتيه بحليب الشوفان', cat: 'مشروبات', price: 5.5 },
+          { name: 'ساندويتش سلمون مدخن', cat: 'مأكولات', price: 11.5 },
+          { name: 'سلطة كينوا بالبروتين', cat: 'مأكولات', price: 9.75 },
+          { name: 'كابل شحن سريع USB-C', cat: 'إلكترونيات', price: 14.99 },
+        ]
+      : [
+          { name: 'Cold Brew Coffee Colombian', cat: 'Beverages', price: 4.75 },
+          { name: 'French Butter Croissant', cat: 'Bakery', price: 3.95 },
+          { name: 'Oat Milk Matcha Latte', cat: 'Beverages', price: 5.5 },
+          { name: 'Smoked Salmon Sandwich', cat: 'Food', price: 11.5 },
+          { name: 'Quinoa Protein Salad', cat: 'Food', price: 9.75 },
+          { name: 'USB-C Fast Charging Cable', cat: 'Electronics', price: 14.99 },
+        ];
+
   return (
     <div className="space-y-6">
       {/* AUTHENTICATION & STORE PICKER */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Key className="w-4 h-4 text-blue-600" />
-              <span>1. التحقق وتحديد متجر الكاشير</span>
+              <span>{t.posStep1}</span>
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              اختر المتجر الحقيقي المراد اختبار إرسال الفاتورة إليه للتحقق من سلامة الترويسة واستقبال السيرفر
+              {t.posStep1Sub}
             </p>
           </div>
 
@@ -201,11 +285,11 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
                 }}
                 className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition cursor-pointer"
               >
-                تحديد متجر نشط
+                {t.posSelectActiveStore}
               </button>
             ) : (
               <span className="text-xs text-amber-700 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200">
-                سجل عميلك الأول لتجربة الإرسال الحي
+                {language === 'ar' ? 'سجل عميلك الأول لتجربة الإرسال الحي' : 'Register your first store to test ingestion'}
               </span>
             )}
           </div>
@@ -213,7 +297,9 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>
-            <label className="block font-medium text-slate-700 mb-1">اختر المتجر المسجل:</label>
+            <label className="block font-medium text-slate-700 mb-1">
+              {t.posSelectActiveStore}:
+            </label>
             <select
               id="pos-store-selector"
               value={selectedApiKey}
@@ -222,7 +308,7 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
             >
               {clients.length > 0 ? (
                 <>
-                  <option value="">-- إدخال يدوي للمفتاح --</option>
+                  <option value="">{t.posManualKey}</option>
                   {clients.map((c) => (
                     <option key={c.id} value={c.api_key}>
                       {c.name} ({c.store_id})
@@ -230,14 +316,14 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
                   ))}
                 </>
               ) : (
-                <option value="">لا يوجد متاجر مسجلة بعد (نظيفة 100%)</option>
+                <option value="">{language === 'ar' ? 'لا يوجد متاجر مسجلة بعد' : 'No registered stores yet'}</option>
               )}
             </select>
           </div>
 
           <div className="md:col-span-2">
             <label className="block font-medium text-slate-700 mb-1">
-              ترويسة الأمان: <code className="text-blue-600 font-bold font-mono">x-api-key</code>
+              {language === 'ar' ? 'ترويسة الأمان:' : 'Security Header:'} <code className="text-blue-600 font-bold font-mono">x-api-key</code>
             </label>
             <input
               type="text"
@@ -246,6 +332,7 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
               onChange={(e) => setSelectedApiKey(e.target.value)}
               placeholder="sk_live_..."
               className="w-full bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 px-3 py-2 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 shadow-2xs"
+              dir="ltr"
             />
           </div>
         </div>
@@ -255,29 +342,24 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* LEFT: QUICK REGISTER CATALOG (6 COLS) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 flex flex-col">
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col">
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-emerald-600" />
-              <span>2. سلة مشتريات نقطة البيع</span>
+              <span>{t.posQuickCatalog}</span>
             </h3>
-            <span className="text-xs text-slate-500 font-mono">إضافة بنقرة واحدة</span>
+            <span className="text-xs text-slate-500 font-mono">
+              {language === 'ar' ? 'إضافة بنقرة واحدة' : 'One-click add'}
+            </span>
           </div>
 
           {/* CATALOG BUTTONS */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {[
-              { name: 'قهوة كولد برو كولومبي', cat: 'مشروبات', price: 4.75 },
-              { name: 'كرواسون زبدة فرنسي', cat: 'مخبوزات', price: 3.95 },
-              { name: 'ماتشا لاتيه بحليب الشوفان', cat: 'مشروبات', price: 5.5 },
-              { name: 'ساندويتش سلمون مدخن', cat: 'مأكولات', price: 11.5 },
-              { name: 'سلطة كينوا بالبروتين', cat: 'مأكولات', price: 9.75 },
-              { name: 'كابل شحن سريع USB-C', cat: 'إلكترونيات', price: 14.99 },
-            ].map((prod, idx) => (
+            {catalogItems.map((prod, idx) => (
               <button
                 key={idx}
                 onClick={() => addItemToCart(prod.name, prod.cat, prod.price)}
-                className="p-3 bg-slate-50 border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl text-right transition group active:scale-95 cursor-pointer shadow-2xs"
+                className="p-3 bg-slate-50 border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl text-start transition group active:scale-95 cursor-pointer shadow-2xs"
               >
                 <div className="text-xs font-bold text-slate-900 group-hover:text-blue-700 truncate">{prod.name}</div>
                 <div className="text-[10px] text-slate-500">{prod.cat}</div>
@@ -289,15 +371,15 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
           {/* TICKET ITEMS */}
           <div className="border-t border-slate-200 pt-3 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">عناصر الفاتورة</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">{t.posCartItems}</span>
               <button onClick={() => setCart([])} className="text-[11px] text-slate-500 hover:text-rose-600 font-medium cursor-pointer">
-                تفريغ السلة
+                {t.posClearCart}
               </button>
             </div>
 
             <div className="space-y-1.5 flex-1 max-h-48 overflow-y-auto pr-1 text-xs">
               {cart.length === 0 ? (
-                <div className="text-center py-6 text-slate-400">السلة فارغة. اضغط على أي صنف أعلاه لإضافته.</div>
+                <div className="text-center py-6 text-slate-400">{t.posEmptyCart}</div>
               ) : (
                 cart.map((it) => (
                   <div
@@ -306,7 +388,7 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
                   >
                     <div className="truncate flex-1 ml-2">
                       <div className="font-bold text-slate-900 truncate text-xs">{it.item_name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">${it.unit_price.toFixed(2)} للقطعة</div>
+                      <div className="text-[10px] text-slate-500 font-mono">${it.unit_price.toFixed(2)}</div>
                     </div>
                     <div className="flex items-center gap-2 font-mono">
                       <div className="flex items-center bg-white rounded-lg border border-slate-300 px-1 shadow-2xs">
@@ -336,15 +418,15 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
             {/* TOTALS */}
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1 mt-3 text-xs">
               <div className="flex justify-between text-slate-500">
-                <span>المجموع الفرعي:</span>
+                <span>{t.posSubtotal}</span>
                 <span className="font-mono text-slate-900 font-semibold">${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-slate-500">
-                <span>الضريبة (8%):</span>
+                <span>{t.posTax}</span>
                 <span className="font-mono text-slate-900 font-semibold">${tax.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-slate-800 font-bold pt-1 border-t border-slate-200">
-                <span>الإجمالي الكلي:</span>
+                <span>{t.posGrandTotal}</span>
                 <span className="font-mono text-emerald-700 text-sm font-bold">${grandTotal.toFixed(2)}</span>
               </div>
             </div>
@@ -352,38 +434,52 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
         </div>
 
         {/* RIGHT: JSON INGESTION & DISPATCHER (6 COLS) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 flex flex-col">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col">
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-3 gap-2">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
               <Terminal className="w-4 h-4 text-blue-600" />
-              <span>3. بيانات الإرسال (ACID Single Transaction)</span>
+              <span>{t.posStep3}</span>
             </h3>
 
-            <button
-              id="pos-submit-btn"
-              onClick={sendInvoice}
-              disabled={isSending}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
-            >
-              <Send className="w-3 h-3" />
-              <span>{isSending ? 'جاري الحفظ...' : 'إرسال الفاتورة POST'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {/* INSTANT SERVER TRANSLATION BUTTON */}
+              <button
+                onClick={handleServerTranslateInvoice}
+                disabled={isTranslating}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title="Translate invoice payload instantly using the server engine"
+              >
+                <Languages className={`w-3.5 h-3.5 ${isTranslating ? 'animate-spin' : ''}`} />
+                <span>{isTranslating ? t.posTranslating : (language === 'ar' ? 'ترجمة فورية (EN)' : 'Translate (AR)')}</span>
+              </button>
+
+              <button
+                id="pos-submit-btn"
+                onClick={sendInvoice}
+                disabled={isSending}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                <Send className="w-3 h-3" />
+                <span>{isSending ? t.posSending : t.posSendInvoice}</span>
+              </button>
+            </div>
           </div>
 
           <div className="space-y-1.5 flex-1 flex flex-col">
-            <label className="block text-xs text-slate-500 font-medium">محتوى الطلب (JSON قابل للتعديل المباشر):</label>
+            <label className="block text-xs text-slate-500 font-medium">{t.posPayloadLabel}</label>
             <textarea
               id="pos-payload-textarea"
               value={customJson}
               onChange={(e) => setCustomJson(e.target.value)}
               className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs font-mono text-slate-900 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 h-52 resize-none select-all shadow-2xs"
+              dir="ltr"
             />
           </div>
 
           {/* RESPONSE VIEWER */}
           <div className="border-t border-slate-200 pt-3 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-bold uppercase tracking-wider text-slate-500">استجابة السيرفر</span>
+              <span className="font-bold uppercase tracking-wider text-slate-500">{t.posServerResponse}</span>
               {responseStatus !== null && (
                 <span
                   className={`font-mono px-2.5 py-0.5 rounded-full text-xs font-bold border ${
@@ -400,10 +496,11 @@ export const PosTester: React.FC<PosTesterProps> = ({ clients, onInvoiceSent }) 
             <pre
               id="pos-response-area"
               className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800 max-h-36 overflow-y-auto select-all"
+              dir="ltr"
             >
               {responseData
                 ? JSON.stringify(responseData, null, 2)
-                : '{ "status": "في انتظار إرسال الطلب..." }'}
+                : `{ "status": "${t.posWaitingResponse}" }`}
             </pre>
           </div>
         </div>
