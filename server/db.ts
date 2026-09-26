@@ -329,7 +329,42 @@ class StorePulseDatabase {
 
   private seedInitialData() {
     if (!this.db) return;
-    // Pure production database initialization - Zero fake/mock data
+
+    // Automatic registration and binding for Mohamed Nazih's live accounting application key
+    const targetApiKey = 'rkz_live_672842_a9d3f8e12b7405c6';
+    const existing = this.getClientByApiKey(targetApiKey);
+    if (!existing) {
+      const stmt = this.db.prepare(`SELECT * FROM clients WHERE store_id = 'RKZ-672842'`);
+      const storeExists = stmt.step();
+      stmt.free();
+
+      if (!storeExists) {
+        const now = new Date().toISOString();
+        const futureExpiry = new Date(Date.now() + 3650 * 86400000).toISOString(); // 10 years / permanent
+        this.db.run(
+          `INSERT INTO clients (id, store_id, name, owner_email, api_key, plan, status, subscription_expires_at, rate_limit_per_minute, total_invoices_ingested, total_revenue_ingested, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            'cli_rkz_672842',
+            'RKZ-672842',
+            'برنامج ركز المحاسبي (Rakaz Accounting App)',
+            'mnazih298@gmail.com',
+            targetApiKey,
+            'enterprise',
+            'active',
+            futureExpiry,
+            1000,
+            0,
+            0.0,
+            now,
+            now,
+          ]
+        );
+        this.persistToDiskNow();
+        console.log(`[Nazih Core / MNDB] Successfully linked user accounting key "${targetApiKey}" for store RKZ-672842.`);
+      }
+    }
+
     console.log('[Nazih Core / MNDB] Database tables verified and ready for real client registration.');
   }
 
@@ -400,6 +435,7 @@ class StorePulseDatabase {
     store_id: string;
     name: string;
     owner_email: string;
+    api_key?: string;
     plan?: 'starter' | 'pro' | 'enterprise';
     status?: 'active' | 'suspended' | 'trial';
     days_valid?: number;
@@ -410,7 +446,7 @@ class StorePulseDatabase {
     const id = `cli_${uuidv4().substring(0, 8)}`;
     const prefix = data.store_id.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 6);
     const randomHex = uuidv4().replace(/-/g, '').substring(0, 16);
-    const apiKey = `sk_live_${prefix}_${randomHex}`;
+    const apiKey = data.api_key && data.api_key.trim().length > 0 ? data.api_key.trim() : `sk_live_${prefix}_${randomHex}`;
     const now = new Date();
     const days = data.days_valid || 30;
     const expiry = new Date(now.getTime() + days * 86400000).toISOString();

@@ -331,7 +331,7 @@ apiRouter.get('/admin/clients', (req: Request, res: Response) => {
 
 // POST /api/admin/clients - Create a new store client with unique API Key
 apiRouter.post('/admin/clients', (req: Request, res: Response) => {
-  const { store_id, name, owner_email, plan, status, days_valid, rate_limit } = req.body;
+  const { store_id, name, owner_email, api_key, plan, status, days_valid, rate_limit } = req.body;
 
   if (!store_id || !name || !owner_email) {
     return res.status(400).json({
@@ -349,11 +349,23 @@ apiRouter.post('/admin/clients', (req: Request, res: Response) => {
     });
   }
 
+  // Check duplicate API key if provided
+  if (api_key && api_key.trim()) {
+    const existingKey = dbInstance.getClientByApiKey(api_key.trim());
+    if (existingKey) {
+      return res.status(409).json({
+        success: false,
+        error: `API Key is already assigned to store "${existingKey.store_id}" (${existingKey.name}).`,
+      });
+    }
+  }
+
   try {
     const created = dbInstance.createClient({
       store_id,
       name,
       owner_email,
+      api_key: api_key?.trim(),
       plan: plan || 'pro',
       status: status || 'active',
       days_valid: days_valid ? parseInt(days_valid) : 30,

@@ -34,6 +34,7 @@ export const KeyGenerator: React.FC<KeyGeneratorProps> = ({
   const [storeId, setStoreId] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
+  const [customApiKey, setCustomApiKey] = useState<string>('');
   const [plan, setPlan] = useState<'starter' | 'pro' | 'enterprise'>('pro');
   const [validityDays, setValidityDays] = useState<number>(30);
   const [rateLimit, setRateLimit] = useState<number>(200);
@@ -71,6 +72,7 @@ export const KeyGenerator: React.FC<KeyGeneratorProps> = ({
           store_id: storeId.trim(),
           name: name.trim(),
           owner_email: email.trim(),
+          api_key: customApiKey.trim() || undefined,
           plan: plan,
           days_valid: validityDays,
           rate_limit: rateLimit,
@@ -88,6 +90,7 @@ export const KeyGenerator: React.FC<KeyGeneratorProps> = ({
         setStoreId('');
         setName('');
         setEmail('');
+        setCustomApiKey('');
         onRefreshClients();
         onRefreshStats();
       } else {
@@ -265,6 +268,31 @@ export const KeyGenerator: React.FC<KeyGeneratorProps> = ({
                   <option value={1000}>1000 {language === 'ar' ? 'طلب / د' : 'req/min'}</option>
                 </select>
               </div>
+            </div>
+
+            <div className="pt-1">
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                {language === 'ar'
+                  ? 'مفتاح API مخصص أو خارجي (اختياري)'
+                  : 'Custom / External API Key (Optional)'}
+              </label>
+              <input
+                type="text"
+                placeholder={
+                  language === 'ar'
+                    ? 'اتركه فارغاً للتوليد التلقائي أو الصق مفتاحك مثل rkz_live_...'
+                    : 'Leave blank to auto-generate or paste external key like rkz_live_...'
+                }
+                value={customApiKey}
+                onChange={(e) => setCustomApiKey(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                dir="ltr"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                {language === 'ar'
+                  ? 'اربط نظام محاسبي أو نقطة بيع تمتلك مفتاحاً معتمداً مسبقاً (مثل: rkz_live_...)'
+                  : 'Link an existing POS or accounting software with a pre-existing key (e.g. rkz_live_...)'}
+              </span>
             </div>
 
             <button
